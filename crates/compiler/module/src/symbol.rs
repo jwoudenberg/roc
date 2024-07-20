@@ -1198,6 +1198,8 @@ define_builtins! {
         31 ATTR_INVALID: "#attr_invalid"
 
         32 CLONE: "#clone" // internal function that clones a value into a buffer
+
+        33 GENERIC_COMPARE: "#generic_compare" // internal function which compares two values, returning 0, 1, or 2 for ==, >, or <
     }
     // Fake module for synthesizing and storing derived implementations
     1 DERIVED_SYNTH: "#Derived" => {
