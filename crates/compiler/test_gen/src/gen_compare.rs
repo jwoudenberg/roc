@@ -247,6 +247,137 @@ fn compare_bool() {
 
 #[test]
 #[cfg(any(feature = "gen-llvm", feature = "gen-dev", feature = "gen-wasm"))]
+fn compare_struct() {
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : Bool }
+                i = { a : Bool.false }
+
+                j : { a : Bool }
+                j = { a : Bool.false }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        0,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : Bool }
+                i = { a : Bool.true }
+
+                j : { a : Bool }
+                j = { a : Bool.false }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        1,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : I64 }
+                i = { a : 2 }
+
+                j : { a : I64 }
+                j = { a  : 3 }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        2,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : Bool, b : F32}
+                i = { a : Bool.false, b : 1.2 }
+
+                j : { a : Bool, b : F32 }
+                j = { a : Bool.false, b : 1.3 }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        2,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : Bool, b : List F32}
+                i = { a : Bool.false, b : [1.3] }
+
+                j : { a : Bool, b : List F32 }
+                j = { a : Bool.false, b : [1.2] }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        1,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { a : Bool, b : List U32}
+                i = { a : Bool.false, b : [13] }
+
+                j : { a : Bool, b : List U32 }
+                j = { a : Bool.false, b : [13] }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        0,
+        u8
+    );
+    assert_evals_to!(
+        indoc!(
+            r#"
+                i : { }
+                i = { }
+
+                j : { }
+                j = { }
+
+                when List.compare i j is
+                    Equal -> 0
+                    GreaterThan -> 1
+                    LessThan -> 2
+            "#
+        ),
+        0,
+        u8
+    );
+}
+
+#[test]
+#[cfg(any(feature = "gen-llvm", feature = "gen-dev", feature = "gen-wasm"))]
 fn list() {
     assert_evals_to!(
         indoc!(

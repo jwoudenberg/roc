@@ -2,14 +2,15 @@ use super::build::BuilderExt;
 use crate::llvm::bitcode::call_bitcode_fn;
 use crate::llvm::build::{load_roc_value, Env, FAST_CALL_CONV};
 use crate::llvm::build_list::{list_len_usize, load_list_ptr};
-use crate::llvm::convert::{basic_type_from_layout, zig_list_type};
+use crate::llvm::convert::{argument_type_from_layout, basic_type_from_layout, zig_list_type};
+use crate::llvm::struct_::RocStruct;
 use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, StructValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
 use roc_builtins::bitcode::{FloatWidth, IntWidth, NUM_GREATER_THAN, NUM_LESS_THAN};
 use roc_module::symbol::Symbol;
 use roc_mono::layout::{
-    Builtin, InLayout, LayoutIds, LayoutInterner, LayoutRepr, STLayoutInterner,
+    Builtin, InLayout, LayoutIds, LayoutInterner, LayoutRepr, STLayoutInterner, UnionLayout,
 };
 
 pub fn generic_compare<'a, 'ctx>(
@@ -41,7 +42,15 @@ pub fn generic_compare<'a, 'ctx>(
             lhs_val.into_struct_value(),
             rhs_val.into_struct_value(),
         ),
-        LayoutRepr::Struct(_) => todo!(),
+        LayoutRepr::Struct(field_layouts) => struct_compare(
+            env,
+            layout_interner,
+            layout_ids,
+            lhs_repr,
+            field_layouts,
+            lhs_val,
+            rhs_val,
+        ),
         LayoutRepr::LambdaSet(_) => unreachable!("cannot compare closures"),
         LayoutRepr::FunctionPointer(_) => unreachable!("cannot compare function pointers"),
         LayoutRepr::Erased(_) => unreachable!("cannot compare erased types"),
@@ -603,5 +612,194 @@ fn list_compare_help<'a, 'ctx>(
     {
         builder.position_at_end(return_lt);
         builder.new_build_return(Some(&ctx.i8_type().const_int(2, false)));
+    }
+}
+
+fn struct_compare<'a, 'ctx>(
+    env: &Env<'a, 'ctx, '_>,
+    layout_interner: &STLayoutInterner<'a>,
+    layout_ids: &mut LayoutIds<'a>,
+    struct_layout: LayoutRepr<'a>,
+    field_layouts: &'a [InLayout<'a>],
+    struct1: BasicValueEnum<'ctx>,
+    struct2: BasicValueEnum<'ctx>,
+) -> IntValue<'ctx> {
+    let block = env.builder.get_insert_block().expect("to be in a function");
+    let di_location = env.builder.get_current_debug_location().unwrap();
+
+    let symbol = Symbol::GENERIC_COMPARE;
+    let fn_name = layout_ids
+        .get(symbol, &struct_layout)
+        .to_symbol_string(symbol, &env.interns);
+
+    let function = match env.module.get_function(fn_name.as_str()) {
+        Some(function_value) => function_value,
+        None => {
+            let arg_type = argument_type_from_layout(env, layout_interner, struct_layout);
+
+            let function_value = crate::llvm::refcounting::build_header_help(
+                env,
+                &fn_name,
+                env.context.i8_type().into(),
+                &[arg_type, arg_type],
+            );
+
+            build_struct_eq_help(
+                env,
+                layout_interner,
+                layout_ids,
+                function_value,
+                struct_layout,
+                field_layouts,
+            );
+
+            function_value
+        }
+    };
+
+    env.builder.position_at_end(block);
+    env.builder.set_current_debug_location(di_location);
+    let call = env.builder.new_build_call(
+        function,
+        &[struct1.into(), struct2.into()],
+        "struct_compare",
+    );
+
+    call.set_call_convention(FAST_CALL_CONV);
+
+    call.try_as_basic_value().left().unwrap().into_int_value()
+}
+
+fn build_struct_eq_help<'a, 'ctx>(
+    env: &Env<'a, 'ctx, '_>,
+    layout_interner: &STLayoutInterner<'a>,
+    layout_ids: &mut LayoutIds<'a>,
+    parent: FunctionValue<'ctx>,
+    struct_layout: LayoutRepr<'a>,
+    field_layouts: &[InLayout<'a>],
+) {
+    let ctx = env.context;
+    let builder = env.builder;
+
+    {
+        use inkwell::debug_info::AsDIScope;
+
+        let func_scope = parent.get_subprogram().unwrap();
+        let lexical_block = env.dibuilder.create_lexical_block(
+            /* scope */ func_scope.as_debug_info_scope(),
+            /* file */ env.compile_unit.get_file(),
+            /* line_no */ 0,
+            /* column_no */ 0,
+        );
+
+        let loc = env.dibuilder.create_debug_location(
+            ctx,
+            /* line */ 0,
+            /* column */ 0,
+            /* current_scope */ lexical_block.as_debug_info_scope(),
+            /* inlined_at */ None,
+        );
+        builder.set_current_debug_location(loc);
+    }
+
+    // Add args to scope
+    let mut it = parent.get_param_iter();
+    let struct1 = it.next().unwrap();
+    let struct2 = it.next().unwrap();
+
+    struct1.set_name(Symbol::ARG_1.as_str(&env.interns));
+    struct2.set_name(Symbol::ARG_2.as_str(&env.interns));
+
+    let start = ctx.append_basic_block(parent, "start");
+    let return_eq = ctx.append_basic_block(parent, "return_eq");
+
+    let mut current = start;
+
+    for (index, field_layout) in field_layouts.iter().enumerate() {
+        builder.position_at_end(current);
+
+        let field1 =
+            RocStruct::from(struct1).load_at_index(env, layout_interner, struct_layout, index as _);
+
+        let field2 =
+            RocStruct::from(struct2).load_at_index(env, layout_interner, struct_layout, index as _);
+
+        let elem_cmp = if let LayoutRepr::RecursivePointer(rec_layout) =
+            layout_interner.get_repr(*field_layout)
+        {
+            debug_assert!(
+                matches!(layout_interner.get_repr(rec_layout), LayoutRepr::Union(union_layout) if !matches!(union_layout, UnionLayout::NonRecursive(..)))
+            );
+
+            let field_layout = rec_layout;
+
+            let bt = basic_type_from_layout(
+                env,
+                layout_interner,
+                layout_interner.get_repr(field_layout),
+            );
+
+            // cast the i64 pointer to a pointer to block of memory
+            let field1_cast = builder.new_build_pointer_cast(
+                field1.into_pointer_value(),
+                bt.into_pointer_type(),
+                "i64_to_opaque",
+            );
+
+            let field2_cast = builder.new_build_pointer_cast(
+                field2.into_pointer_value(),
+                bt.into_pointer_type(),
+                "i64_to_opaque",
+            );
+
+            generic_compare(
+                env,
+                layout_interner,
+                layout_ids,
+                field1_cast.into(),
+                field2_cast.into(),
+                field_layout,
+                field_layout,
+            )
+            .into_int_value()
+        } else {
+            generic_compare(
+                env,
+                layout_interner,
+                layout_ids,
+                field1,
+                field2,
+                *field_layout,
+                *field_layout,
+            )
+            .into_int_value()
+        };
+
+        let are_equal = builder.new_build_int_compare(
+            IntPredicate::EQ,
+            elem_cmp,
+            ctx.i8_type().const_int(0, false),
+            "are_equal",
+        );
+
+        let not_eq_bb = ctx.append_basic_block(parent, &format!("not_eq_{index}"));
+
+        {
+            builder.position_at_end(not_eq_bb);
+            builder.new_build_return(Some(&elem_cmp));
+        }
+
+        builder.position_at_end(current);
+        current = ctx.append_basic_block(parent, &format!("cmp_step_{index}"));
+
+        builder.new_build_conditional_branch(are_equal, current, not_eq_bb);
+    }
+
+    builder.position_at_end(current);
+    builder.new_build_unconditional_branch(return_eq);
+
+    {
+        builder.position_at_end(return_eq);
+        builder.new_build_return(Some(&ctx.i8_type().const_int(0, false)));
     }
 }

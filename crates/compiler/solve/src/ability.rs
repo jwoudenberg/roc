@@ -874,7 +874,7 @@ impl DerivableVisitor for DeriveSort {
 
     #[inline(always)]
     fn visit_apply(var: Variable, symbol: Symbol) -> Result<Descend, NotDerivable> {
-        if matches!(symbol, Symbol::LIST_LIST,) {
+        if matches!(symbol, Symbol::LIST_LIST | Symbol::BOX_BOX_TYPE,) {
             Ok(Descend(true))
         } else {
             Err(NotDerivable {
@@ -882,6 +882,36 @@ impl DerivableVisitor for DeriveSort {
                 context: NotDerivableContext::NoContext,
             })
         }
+    }
+
+    #[inline(always)]
+    fn visit_alias(_var: Variable, _symbol: Symbol) -> Result<Descend, NotDerivable> {
+        Ok(Descend(true))
+    }
+
+    #[inline(always)]
+    fn visit_record(
+        subs: &Subs,
+        var: Variable,
+        fields: RecordFields,
+    ) -> Result<Descend, NotDerivable> {
+        for (field_name, _, field) in fields.iter_all() {
+            if subs[field].is_optional() {
+                return Err(NotDerivable {
+                    var,
+                    context: NotDerivableContext::DecodeOptionalRecordField(
+                        subs[field_name].clone(),
+                    ),
+                });
+            }
+        }
+
+        Ok(Descend(true))
+    }
+
+    #[inline(always)]
+    fn visit_empty_record(_var: Variable) -> Result<(), NotDerivable> {
+        Ok(())
     }
 
     #[inline(always)]
