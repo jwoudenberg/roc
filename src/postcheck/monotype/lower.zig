@@ -3169,10 +3169,7 @@ const Builder = struct {
     ) Allocator.Error!std.ArrayList(RestoredConstSourceCapture) {
         var capture_count: usize = 0;
         for (fn_value.captures) |capture| {
-            switch (capture.id) {
-                .binder => capture_count += 1,
-                .generated => {},
-            }
+            if (capture.id.isCanonical()) capture_count += 1;
         }
 
         var out = std.ArrayList(RestoredConstSourceCapture).empty;
@@ -3180,10 +3177,8 @@ const Builder = struct {
         try out.ensureTotalCapacity(self.allocator, capture_count);
 
         for (fn_value.captures) |capture| {
-            const binder = switch (capture.id) {
-                .binder => |binder| binder,
-                .generated => continue,
-            };
+            if (!capture.id.isCanonical()) continue;
+            const binder = capture.id.binder();
             const lowered_ty = try fn_ctx.lowerTypeView(checkedBinderType(fn_view, binder));
             const local = try fn_ctx.addLocalWithBinder(self.symbols.fresh(), lowered_ty, binder);
             try fn_ctx.bindLocalName(local, binder);
@@ -3202,10 +3197,7 @@ const Builder = struct {
 
         var out_index: usize = 0;
         for (fn_value.captures) |capture| {
-            switch (capture.id) {
-                .binder => {},
-                .generated => continue,
-            }
+            if (!capture.id.isCanonical()) continue;
             out.items[out_index].value = try fn_ctx.restoreConstNodeAtType(store_view, fn_view, capture.value, out.items[out_index].ty);
             out_index += 1;
         }
@@ -3333,8 +3325,8 @@ const Builder = struct {
             .def_ref,
             => return false,
             .fn_ref => |fn_ref| {
-                for (self.program.exprSpan(fn_ref.captures)) |capture| {
-                    if (try self.exprDependsOnFreeLocalInner(capture, target, bound, active_fns)) return true;
+                for (self.program.captureOperandSpan(fn_ref.captures)) |operand| {
+                    if (try self.exprDependsOnFreeLocalInner(operand.value, target, bound, active_fns)) return true;
                 }
                 return false;
             },
@@ -3404,8 +3396,8 @@ const Builder = struct {
                 for (self.program.exprSpan(call.args)) |arg| {
                     if (try self.exprDependsOnFreeLocalInner(arg, target, bound, active_fns)) return true;
                 }
-                for (self.program.exprSpan(call.captures)) |capture| {
-                    if (try self.exprDependsOnFreeLocalInner(capture, target, bound, active_fns)) return true;
+                for (self.program.captureOperandSpan(call.captures)) |operand| {
+                    if (try self.exprDependsOnFreeLocalInner(operand.value, target, bound, active_fns)) return true;
                 }
                 return false;
             },
@@ -4721,7 +4713,7 @@ const DraftLocal = struct {
     symbol: Common.Symbol,
     ty: DraftTypeCell,
     binder: ?checked.PatternBinderId = null,
-    capture_id: ?u32 = null,
+    capture_id: ?checked.CaptureId = null,
 };
 
 const DraftTypedLocal = struct {
@@ -5290,6 +5282,9 @@ const BodyDraftStore = struct {
             .symbol = symbol,
             .ty = ty,
             .binder = binder,
+            // A binder-backed local carries the exact capture identity of
+            // its binding, so any function that captures it joins by CaptureId.
+            .capture_id = if (binder) |b| checked.CaptureId.fromBinder(b) else null,
         });
         try self.local_names.append(self.allocator, .empty());
         return id;
@@ -5438,7 +5433,7 @@ const BodyDraftStore = struct {
     }
 
     fn setLocalCaptureId(self: *BodyDraftStore, id: DraftLocalId, capture_id: u32) void {
-        self.locals.items[@intFromEnum(id)].capture_id = capture_id;
+        self.locals.items[@intFromEnum(id)].capture_id = checked.CaptureId.generatedCheck(capture_id);
     }
 
     fn setLocalType(self: *BodyDraftStore, id: DraftLocalId, ty: DraftTypeCell) void {
@@ -5806,12 +5801,17 @@ const BodyDraftStore = struct {
                 .callee = ids.expr(call.callee),
                 .args = ids.exprSpan(call.args),
             } },
-            .call_proc => |call| .{ .call_proc = .{
-                .callee = ids.procCallee(call.callee),
-                .args = ids.exprSpan(call.args),
-                .captures = ids.exprSpan(call.captures),
-                .is_cold = call.is_cold,
-            } },
+            .call_proc => |call| blk: {
+                // Pre-lift direct calls never carry capture operands; closure
+                // lifting resolves them. Preserve that as an invariant.
+                std.debug.assert(call.captures.len == 0);
+                break :blk .{ .call_proc = .{
+                    .callee = ids.procCallee(call.callee),
+                    .args = ids.exprSpan(call.args),
+                    .captures = Ast.Span(Ast.CaptureOperand).empty(),
+                    .is_cold = call.is_cold,
+                } };
+            },
             .low_level => |call| .{ .low_level = .{
                 .op = call.op,
                 .args = ids.exprSpan(call.args),
@@ -23582,18 +23582,14 @@ fn checkedCaptureBinder(view: ModuleView, pattern: checked.CheckedPatternId) che
 }
 
 fn constCaptureBinder(id: check.ConstStore.CaptureId) checked.PatternBinderId {
-    return switch (id) {
-        .binder => |binder| binder,
-        .generated => Common.invariant("generated capture reached source lambda restore"),
-    };
+    if (!id.isCanonical()) Common.invariant("generated capture reached source lambda restore");
+    return id.binder();
 }
 
 fn constGeneratedCaptureNode(fn_value: check.ConstStore.ConstFn, capture_id: u32) ?checked.ConstNodeId {
+    const needle = checked.CaptureId.generatedCheck(capture_id);
     for (fn_value.captures) |capture| {
-        switch (capture.id) {
-            .generated => |actual| if (actual == capture_id) return capture.value,
-            .binder => {},
-        }
+        if (capture.id == needle) return capture.value;
     }
     return null;
 }
