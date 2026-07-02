@@ -85,6 +85,11 @@ const TwoTagsSafeList = TwoTags.SafeList;
 const Problem = problem_mod.Problem;
 const Context = problem_mod.Context;
 
+const NominalDirection = enum {
+    a_is_nominal,
+    b_is_nominal,
+};
+
 /// The result of unification
 pub const Result = union(enum) {
     const Self = @This();
@@ -345,6 +350,12 @@ const Unifier = struct {
         } });
     }
 
+    fn newMismatchFlag(self: *Self) std.mem.Allocator.Error!u32 {
+        const flag_idx: u32 = @intCast(self.scratch.mismatch_flags.items.items.len);
+        _ = try self.scratch.mismatch_flags.append(self.scratch.gpa, false);
+        return flag_idx;
+    }
+
     fn runWorkLoop(self: *Self) Error!void {
         while (self.scratch.unify_work_stack.items.pop()) |frame| {
             self.processFrame(frame) catch |err| switch (err) {
@@ -363,6 +374,10 @@ const Unifier = struct {
             },
             .unify_vars => |vars| try self.unifyVars(&vars),
             .merge => |merge_frame| try self.merge(&merge_frame.vars, merge_frame.content),
+            .merge_to_nominal => |merge_frame| try self.mergeToNominal(&merge_frame.vars, merge_frame.direction),
+            .same_alias_after_args => |post| try self.processSameAliasAfterArgs(post),
+            .shared_fields_after_children => |post| try self.processSharedFieldsAfterChildren(post),
+            .shared_tags_after_children => |post| try self.processSharedTagsAfterChildren(post),
         }
     }
 
@@ -419,11 +434,6 @@ const Unifier = struct {
             },
         }
     }
-
-    const NominalDirection = enum {
-        a_is_nominal,
-        b_is_nominal,
-    };
 
     fn unifyGuarded(self: *Self, a_var: Var, b_var: Var) Error!void {
         const trace = tracy.trace(@src());
@@ -1125,6 +1135,91 @@ const Unifier = struct {
             .a_is_nominal => try self.merge(vars, vars.a.desc.content),
             .b_is_nominal => try self.merge(vars, vars.b.desc.content),
         }
+    }
+
+    fn processSameAliasAfterArgs(self: *Self, post: struct {
+        vars: ResolvedVarDescs,
+        a_backing_var: Var,
+        b_backing_var: Var,
+        did_arg_error_flag: u32,
+    }) Error!void {
+        if (self.scratch.mismatch_flags.items.items[post.did_arg_error_flag]) {
+            return error.TypeMismatch;
+        }
+
+        try self.scheduleMerge(post.vars, post.vars.b.desc.content);
+        try self.scheduleGuardedPair(post.a_backing_var, post.b_backing_var, .ignore);
+    }
+
+    fn processSharedFieldsAfterChildren(self: *Self, post: struct {
+        vars: ResolvedVarDescs,
+        shared_fields_range: TwoRecordFieldsSafeList.Range,
+        mb_a_extended_fields: ?RecordFieldSafeList.Range,
+        mb_b_extended_fields: ?RecordFieldSafeList.Range,
+        ext: Var,
+        did_field_error_flag: u32,
+    }) Error!void {
+        if (self.scratch.mismatch_flags.items.items[post.did_field_error_flag]) {
+            return error.TypeMismatch;
+        }
+
+        const range_start: u32 = @intCast(self.types_store.record_fields.len());
+
+        for (self.scratch.in_both_fields.sliceRange(post.shared_fields_range)) |shared| {
+            _ = try self.types_store.appendRecordFields(&[_]RecordField{.{
+                .name = shared.b.name,
+                .var_ = shared.b.var_,
+            }});
+        }
+
+        if (post.mb_a_extended_fields) |extended_fields| {
+            _ = try self.types_store.appendRecordFields(
+                self.scratch.only_in_a_fields.sliceRange(extended_fields),
+            );
+        }
+        if (post.mb_b_extended_fields) |extended_fields| {
+            _ = try self.types_store.appendRecordFields(
+                self.scratch.only_in_b_fields.sliceRange(extended_fields),
+            );
+        }
+
+        try self.merge(&post.vars, Content{ .structure = FlatType{ .record = .{
+            .fields = self.types_store.record_fields.rangeToEnd(range_start),
+            .ext = post.ext,
+        } } });
+    }
+
+    fn processSharedTagsAfterChildren(self: *Self, post: struct {
+        vars: ResolvedVarDescs,
+        shared_tags_range: TwoTags.SafeList.Range,
+        mb_a_extended_tags: ?Tag.SafeList.Range,
+        mb_b_extended_tags: ?Tag.SafeList.Range,
+        ext: Var,
+    }) Error!void {
+        const range_start: u32 = @intCast(self.types_store.tags.len());
+
+        for (self.scratch.in_both_tags.sliceRange(post.shared_tags_range)) |tags| {
+            _ = try self.types_store.appendTags(&[_]Tag{.{
+                .name = tags.b.name,
+                .args = tags.b.args,
+            }});
+        }
+
+        if (post.mb_a_extended_tags) |extended_tags| {
+            _ = try self.types_store.appendTags(
+                self.scratch.only_in_a_tags.sliceRange(extended_tags),
+            );
+        }
+        if (post.mb_b_extended_tags) |extended_tags| {
+            _ = try self.types_store.appendTags(
+                self.scratch.only_in_b_tags.sliceRange(extended_tags),
+            );
+        }
+
+        try self.merge(&post.vars, Content{ .structure = FlatType{ .tag_union = .{
+            .tags = self.types_store.tags.rangeToEnd(range_start),
+            .ext = post.ext,
+        } } });
     }
 
     fn unifyTagUnionWithNominal(
@@ -2534,6 +2629,31 @@ const WorkFrame = union(enum) {
     merge: struct {
         vars: ResolvedVarDescs,
         content: Content,
+    },
+    merge_to_nominal: struct {
+        vars: ResolvedVarDescs,
+        direction: NominalDirection,
+    },
+    same_alias_after_args: struct {
+        vars: ResolvedVarDescs,
+        a_backing_var: Var,
+        b_backing_var: Var,
+        did_arg_error_flag: u32,
+    },
+    shared_fields_after_children: struct {
+        vars: ResolvedVarDescs,
+        shared_fields_range: TwoRecordFieldsSafeList.Range,
+        mb_a_extended_fields: ?RecordFieldSafeList.Range,
+        mb_b_extended_fields: ?RecordFieldSafeList.Range,
+        ext: Var,
+        did_field_error_flag: u32,
+    },
+    shared_tags_after_children: struct {
+        vars: ResolvedVarDescs,
+        shared_tags_range: TwoTags.SafeList.Range,
+        mb_a_extended_tags: ?Tag.SafeList.Range,
+        mb_b_extended_tags: ?Tag.SafeList.Range,
+        ext: Var,
     },
 
     pub const SafeList = MkSafeList(@This());
