@@ -544,6 +544,11 @@ pub const ExportTableView = struct {
 pub const ProvidesEntry = struct {
     source_name: canonical.ExportNameId,
     ffi_symbol: canonical.ExternalSymbolNameId,
+    /// The top-level definition this provides entry binds, resolved by the
+    /// producer within its own module (the canonicalize->check boundary is
+    /// the one legitimate name-resolution point). Consumers (glue) use this
+    /// instead of re-matching definition names.
+    def: ?CIR.Def.Idx = null,
 };
 
 /// Public `RequiresEntry` declaration.
@@ -19166,6 +19171,10 @@ const PlatformAppRelationTypeDigestBuilder = struct {
         name: canonical.TypeNameId,
         source_decl: ?u32,
     ) void {
+        // Must stay byte-compatible with
+        // `SubstitutedCheckedTypeKeyBuilder.writeNamedSourceIdentity`: merge/
+        // finalize result keys share the checked-type key space, so an
+        // identity-preserving finalize must reproduce the root's stored key.
         self.writeBytes(self.names.moduleIdentityBytes(origin_module));
         self.writeOptionalU32(source_decl);
         if (source_decl == null) {
@@ -19348,9 +19357,10 @@ fn topLevelDefSourceName(
 
 fn publishProvidesMetadata(
     allocator: Allocator,
-    module_env: *const ModuleEnv,
+    module: TypedCIR.Module,
     names: *canonical.CanonicalNameStore,
 ) Allocator.Error![]ProvidesEntry {
+    const module_env = module.moduleEnvConst();
     const source = module_env.provides_entries.items.items;
     const provides = try allocator.alloc(ProvidesEntry, source.len);
     errdefer allocator.free(provides);
@@ -19359,6 +19369,7 @@ fn publishProvidesMetadata(
         provides[i] = .{
             .source_name = try names.internExportIdent(module_env.getIdentStoreConst(), entry.ident),
             .ffi_symbol = try names.internExternalSymbolName(module_env.getString(entry.ffi_symbol)),
+            .def = module.topLevelDefByIdent(entry.ident),
         };
     }
 
@@ -26679,7 +26690,7 @@ pub fn publishFromTypedModule(
     const exports = try collectPublishedExportDefs(allocator, module);
     errdefer allocator.free(exports);
 
-    const provides = try publishProvidesMetadata(allocator, module_env, &canonical_names);
+    const provides = try publishProvidesMetadata(allocator, module, &canonical_names);
     errdefer allocator.free(provides);
 
     const requires = try publishRequiresMetadata(allocator, module, &canonical_names);
@@ -27363,7 +27374,7 @@ fn expectProvidedExportKind(
     );
     defer hoisted_constants.deinit(allocator);
 
-    const provides = try publishProvidesMetadata(allocator, module_env, &canonical_names);
+    const provides = try publishProvidesMetadata(allocator, module, &canonical_names);
     defer allocator.free(provides);
 
     var resolved_value_refs = try ResolvedValueRefTable.fromModule(
@@ -28478,8 +28489,8 @@ test "SERIALIZED_VERSION_HASH golden value" {
     // change, bump `serialized_layout_version` and replace the golden bytes below with
     // the ones this assertion prints.
     const golden: [32]u8 = .{
-        0xE0, 0x2B, 0x27, 0xB8, 0x3C, 0x80, 0xAB, 0x48, 0x25, 0x47, 0xAE, 0x79, 0xF6, 0xED, 0x98, 0x20,
-        0x5A, 0x0B, 0x0A, 0x48, 0xC5, 0xD7, 0xF1, 0x9C, 0x32, 0x53, 0x48, 0xB0, 0x5E, 0x04, 0x63, 0xCB,
+        0x3F, 0xA0, 0x78, 0xB9, 0x32, 0x0D, 0xDD, 0xFF, 0x93, 0x95, 0x41, 0xC2, 0xEB, 0x78, 0x18, 0x4E,
+        0x05, 0xF0, 0x3D, 0x43, 0x45, 0xCE, 0x9B, 0x31, 0x1A, 0xA7, 0xCF, 0xC2, 0x8D, 0x8B, 0x0D, 0x36,
     };
     try std.testing.expectEqualSlices(u8, &golden, &CheckedModuleArtifact.SERIALIZED_VERSION_HASH);
 }

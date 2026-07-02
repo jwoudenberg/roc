@@ -537,23 +537,19 @@ fn appendCheckOwnerEnvIfMissing(
     module_env: *const ModuleEnv,
 ) Allocator.Error!void {
     for (owner_envs.items) |existing| {
-        if (moduleEnvNamesMatch(existing, module_env)) return;
+        if (moduleEnvIdentitiesMatch(existing, module_env)) return;
     }
     try owner_envs.append(allocator, module_env);
 }
 
-fn moduleEnvNamesMatch(a: *const ModuleEnv, b: *const ModuleEnv) bool {
+/// Two owner envs are duplicates exactly when their deep content identities
+/// match: byte-identical transitive module content is interchangeable as a
+/// type owner. No name text participates.
+fn moduleEnvIdentitiesMatch(a: *const ModuleEnv, b: *const ModuleEnv) bool {
     if (@intFromPtr(a) == @intFromPtr(b)) return true;
-    if (!a.qualified_module_ident.isNone() and !b.qualified_module_ident.isNone()) {
-        return std.mem.eql(u8, a.getIdent(a.qualified_module_ident), b.getIdent(b.qualified_module_ident));
-    }
-    if (!a.display_module_name_idx.isNone() and !b.display_module_name_idx.isNone()) {
-        return std.mem.eql(u8, a.getIdent(a.display_module_name_idx), b.getIdent(b.display_module_name_idx));
-    }
-    if (a.qualified_module_ident.isNone() or b.qualified_module_ident.isNone()) {
-        if (std.mem.eql(u8, a.module_name, b.module_name)) return true;
-    }
-    return false;
+    const a_hash = a.contentIdentityHash() orelse return false;
+    const b_hash = b.contentIdentityHash() orelse return false;
+    return std.mem.eql(u8, a_hash, b_hash);
 }
 
 fn availableArtifactByKey(

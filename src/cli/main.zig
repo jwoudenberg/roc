@@ -1743,16 +1743,20 @@ fn updatePlatformAppRelationIdentity(
     hasher: *std.crypto.hash.sha2.Sha256,
     root_artifact: *const check.CheckedArtifact.CheckedModuleArtifact,
 ) void {
-    updateHashBytes(hasher, "platform-app-relations-v1");
+    // Host-boundary fingerprint: hash the relation/binding SHAPE only, never
+    // checked type keys. Type keys are deep content digests (they embed the
+    // app module's content identity), so hashing them would change the host
+    // interface fingerprint on every app source edit and break hot reload of
+    // unchanged interfaces. Interface compatibility itself is enforced by the
+    // rebuild's type check, and ABI stability by the host callable layout
+    // identity hashed alongside this.
+    updateHashBytes(hasher, "platform-app-relations-v2");
 
     const relations = root_artifact.platform_requirement_relations.relations;
     updateHashU32(hasher, @intCast(relations.len));
     for (relations) |relation| {
         updateHashU32(hasher, @intFromEnum(relation.declaration));
         updateHashU32(hasher, relation.requires_idx);
-        hasher.update(&relation.declared_source_ty.bytes);
-        hasher.update(&relation.requested_source_ty.bytes);
-        hasher.update(&relation.app_value_source_scheme.bytes);
         updateHashU32(hasher, @intFromEnum(relation.value_kind));
     }
 
@@ -1761,7 +1765,6 @@ fn updatePlatformAppRelationIdentity(
     for (bindings) |binding| {
         updateHashU32(hasher, @intFromEnum(binding.declaration));
         updateHashU32(hasher, binding.requires_idx);
-        hasher.update(&binding.requested_source_ty.bytes);
         updateHashU32(hasher, @intFromEnum(binding.checked_relation));
         updateHashU32(hasher, @intFromEnum(std.meta.activeTag(binding.value_use)));
     }

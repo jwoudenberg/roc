@@ -827,10 +827,6 @@ const Builder = struct {
         Common.invariant("hosted procedure template was not output in the hosted catalog");
     }
 
-    fn moduleName(self: *Builder, view: ModuleView, id: names.ModuleNameId) Allocator.Error!names.ModuleNameId {
-        return self.program.names.internModuleName(view.names.moduleNameText(id));
-    }
-
     fn typeName(self: *Builder, view: ModuleView, id: names.TypeNameId) Allocator.Error!names.TypeNameId {
         return self.program.names.internTypeName(view.names.typeNameText(id));
     }
@@ -22833,21 +22829,21 @@ test "monotype sameType keeps failed alias alternatives out of recursion stack" 
     var program = Ast.Program.init(std.testing.allocator);
     defer program.deinit();
 
-    const module_name = try program.names.internModuleName("Test");
+    const module_identity = try program.names.internModuleIdentity(&([_]u8{0xAB} ** 32));
     const type_name = try program.names.internTypeName("Alias");
     const checked_ty: checked.CheckedTypeId = @enumFromInt(1);
     const i64_ty = try program.types.add(.{ .primitive = .i64 });
     const str_ty = try program.types.add(.{ .primitive = .str });
     const alias_i64 = try program.types.add(.{ .named = .{
         .named_type = .{ .module = .{}, .ty = checked_ty },
-        .def = .{ .module_name = module_name, .type_name = type_name },
+        .def = .{ .module = module_identity, .type_name = type_name },
         .kind = .alias,
         .args = Type.Span.empty(),
         .backing = .{ .ty = i64_ty, .use = .inspectable },
     } });
     const alias_str = try program.types.add(.{ .named = .{
         .named_type = .{ .module = .{}, .ty = checked_ty },
-        .def = .{ .module_name = module_name, .type_name = type_name },
+        .def = .{ .module = module_identity, .type_name = type_name },
         .kind = .alias,
         .args = Type.Span.empty(),
         .backing = .{ .ty = str_ty, .use = .inspectable },
