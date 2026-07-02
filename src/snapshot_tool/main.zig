@@ -3465,6 +3465,8 @@ fn processDocsSnapshot(
     };
     defer build_env.deinit();
     build_env.setFinalizeExecutableArtifacts(false);
+    build_env.setSyntheticRootPackageIdentity();
+    build_env.setSyntheticRootPlatformPackageIdentity();
 
     build_env.build(app_path) catch |err| {
         std.log.err("BuildEnv.build failed for {s}: {}", .{ app_path, err });
@@ -3908,6 +3910,8 @@ fn processDevObjectSnapshot(
         return false;
     };
     defer build_env.deinit();
+    build_env.setSyntheticRootPackageIdentity();
+    build_env.setSyntheticRootPlatformPackageIdentity();
 
     build_env.build(app_path) catch |err| {
         std.log.err("BuildEnv.build failed for {s}: {}", .{ app_path, err });
