@@ -28211,7 +28211,7 @@ test "CheckedTypeStore: POD round-trip preserves payloads, tags, var names, rang
     const rf = try store.appendNominalRecordFields(gpa, &.{ .{ .named = field_name }, .{ .padding = a } });
     try store.nominal_declarations.append(gpa, .{
         .id = @enumFromInt(@as(u32, @intCast(store.nominal_declarations.items.len))),
-        .nominal = .{ .module = @enumFromInt(0), .type_name = @enumFromInt(2), .source_decl = null },
+        .nominal = .{ .module = @enumFromInt(3), .type_name = @enumFromInt(2), .source_decl = null },
         .source_statement = 0,
         .declaration_root = b,
         .backing = a,

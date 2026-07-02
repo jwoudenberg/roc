@@ -2215,7 +2215,7 @@ test "alias unification does not make the alias its own backing" {
     const backing = try graph.newNode(.{ .primitive = .u64 });
     const alias = try graph.newNode(.{ .named = .{
         .named_type = .{ .module = .{}, .ty = testCheckedTypeId(1) },
-        .def = .{ .module = @enumFromInt(0), .type_name = @enumFromInt(1) },
+        .def = .{ .module = try name_store.internModuleIdentity(&([_]u8{0xAB} ** 32)), .type_name = @enumFromInt(1) },
         .kind = .alias,
         .builtin_owner = null,
         .args = try graph.arena().alloc(NodeId, 0),

@@ -12,6 +12,7 @@
 //! chains. This is reset between runs. The check does not mutate the `Store`.
 
 const std = @import("std");
+const base = @import("base");
 const collections = @import("collections");
 const types = @import("types");
 
@@ -420,7 +421,7 @@ test "occurs: no recursion through two levels (v1 = Box(v2), v2 = Str)" {
         undefined,
         backing_var,
         &.{v2},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
     try types_store.setRootVarContent(v2, Content{ .structure = .empty_record });
@@ -488,7 +489,7 @@ test "occurs: recursive alias (v = Alias(List v))" {
         types.TypeIdent{ .ident_idx = undefined },
         backing_var,
         &.{arg},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
     ));
 
     const result = occurs(&types_store, &scratch, v);
@@ -513,7 +514,7 @@ test "occurs: alias with no recursion (v = Alias Str)" {
         types.TypeIdent{ .ident_idx = undefined },
         backing_var,
         &.{arg_var},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
     ));
 
     const result = occurs(&types_store, &scratch, alias_var);
@@ -566,7 +567,7 @@ test "occurs: nested recursive tag union (v = [ Cons(elem, Box(v)) ] )" {
         undefined,
         box_backing_var,
         &.{linked_list},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -609,7 +610,7 @@ test "occurs: recursive tag union (v = List: [ Cons(Elem, List), Nil ])" {
         undefined,
         backing_var,
         &.{},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -649,7 +650,7 @@ test "occurs: recursive tag union with multiple nominals (TypeA := TypeB, TypeB 
         undefined,
         type_b_backing,
         &.{},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -658,7 +659,7 @@ test "occurs: recursive tag union with multiple nominals (TypeA := TypeB, TypeB 
         undefined,
         type_b_nominal,
         &.{},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -788,7 +789,7 @@ test "occurs: anonymous recursion in a nominal's type argument is not valid (reg
         undefined,
         wrapper_backing,
         &.{inner},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -825,7 +826,7 @@ test "occurs: anonymous recursion below a buried nominal is not valid (regressio
         undefined,
         inner,
         &.{},
-        @enumFromInt(0),
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
