@@ -4861,6 +4861,299 @@ fn compileAppWithCheckedModuleCache(
     };
 }
 
+const AppRootIdentity = struct {
+    artifact_key: [32]u8,
+    module_identity_hash: [32]u8,
+    cache_hits: u32,
+};
+
+/// Compile an app workspace and return the executable root artifact's
+/// content-addressed key and module identity hash, plus checked-cache hits.
+fn compileAppRootIdentity(
+    allocator: Allocator,
+    cache_dir: []const u8,
+    app_path: []const u8,
+) CheckedModuleCacheRunError!AppRootIdentity {
+    const roc_ctx = CoreCtx.os(allocator, allocator, std.testing.io);
+    var cache_manager = CacheManager.init(allocator, .{
+        .enabled = true,
+        .cache_dir = cache_dir,
+    }, roc_ctx);
+
+    var builtin_modules = try eval.BuiltinModules.init(allocator);
+    defer builtin_modules.deinit();
+
+    var coord = try Coordinator.init(
+        allocator,
+        .single_threaded,
+        1,
+        roc_target.RocTarget.detectNative(),
+        &builtin_modules,
+        build_options.compiler_version,
+        &cache_manager,
+        roc_ctx,
+    );
+    defer coord.deinit();
+    coord.enable_hosted_transform = true;
+
+    var arena_impl = base.SingleThreadArena.init(allocator);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
+
+    try coord.start();
+    try coord.discoverAppFromPath(arena, .{ .entry_path = app_path });
+    try coord.coordinatorLoop();
+    try std.testing.expect(!coord.hasUserErrors());
+    try coord.finalizeExecutableArtifacts();
+    try std.testing.expect(!coord.hasUserErrors());
+
+    const root = coord.executableRootCheckedArtifact();
+    return .{
+        .artifact_key = root.key.bytes,
+        .module_identity_hash = root.module_identity.stable_hash,
+        .cache_hits = coord.getBuildStats().cache_hits,
+    };
+}
+
+fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8) !void {
+    var path_buf: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&path_buf);
+    try writer.print("{s}/app/.roc_echo_platform", .{sub_dir});
+    try tmp_dir.dir.createDirPath(std.testing.io, writer.buffered());
+
+    const files = [_]struct { rel: []const u8, data: []const u8 }{
+        .{ .rel = "app/main.roc", .data = 
+        \\app [main!] { pf: platform "./.roc_echo_platform/main.roc" }
+        \\
+        \\import pf.Echo
+        \\
+        \\main! = |_args| {
+        \\    Echo.line!("done")
+        \\    Ok({})
+        \\}
+        },
+        .{ .rel = "app/.roc_echo_platform/main.roc", .data = 
+        \\platform ""
+        \\    requires {} { main! : List(Str) => Try({}, [Exit(I8), ..]) }
+        \\    exposes [Echo]
+        \\    packages {}
+        \\    provides { "roc_main": main_for_host! }
+        \\    hosted { "roc_echo_line": Echo.line! }
+        \\
+        \\import Echo
+        \\
+        \\main_for_host! : List(Str) => I8
+        \\main_for_host! = |args|
+        \\    match main!(args) {
+        \\        Ok({}) => 0
+        \\        Err(Exit(code)) => code
+        \\        Err(other) => {
+        \\            Echo.line!("Program exited with error: ${Str.inspect(other)}")
+        \\            1
+        \\        }
+        \\    }
+        },
+        .{ .rel = "app/.roc_echo_platform/Echo.roc", .data = 
+        \\Echo := [].{
+        \\    line! : Str => {}
+        \\}
+        },
+    };
+    for (files) |file| {
+        var rel_buf: [256]u8 = undefined;
+        var rel_writer = std.Io.Writer.fixed(&rel_buf);
+        try rel_writer.print("{s}/{s}", .{ sub_dir, file.rel });
+        try tmp_dir.dir.writeFile(std.testing.io, .{ .sub_path = rel_writer.buffered(), .data = file.data });
+    }
+}
+
+test "cache-key purity: identical workspaces in different directories produce bit-identical identities, keys, and cache hits" {
+    const allocator = std.testing.allocator;
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.createDirPath(std.testing.io, "cache");
+    const cache_dir = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "cache", allocator);
+    defer allocator.free(cache_dir);
+
+    // The same workspace content in two different temp directories.
+    try writeCacheKeyPurityFixture(&tmp_dir, "first");
+    try writeCacheKeyPurityFixture(&tmp_dir, "second");
+
+    const first_app = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "first/app/main.roc", allocator);
+    defer allocator.free(first_app);
+    const second_app = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "second/app/main.roc", allocator);
+    defer allocator.free(second_app);
+
+    const first = try compileAppRootIdentity(allocator, cache_dir, first_app);
+    const second = try compileAppRootIdentity(allocator, cache_dir, second_app);
+
+    // Identity bytes and content-addressed cache keys are pure functions of
+    // module content: no coordinator-assigned display strings and no paths
+    // participate, so both builds agree bit-for-bit.
+    try std.testing.expectEqualSlices(u8, &first.module_identity_hash, &second.module_identity_hash);
+    try std.testing.expectEqualSlices(u8, &first.artifact_key, &second.artifact_key);
+    // ...and the second build gets checked-cache hits from the first build's
+    // entries even though it ran in a different directory.
+    try std.testing.expect(second.cache_hits > 0);
+}
+
+fn writeHostedDistinctnessFixture(tmp_dir: *std.testing.TmpDir) !void {
+    try tmp_dir.dir.createDirPath(std.testing.io, "app/.roc_hosted_platform");
+    try tmp_dir.dir.writeFile(std.testing.io, .{
+        .sub_path = "app/main.roc",
+        .data =
+        \\app [main!] { pf: platform "./.roc_hosted_platform/main.roc" }
+        \\
+        \\import pf.EchoA
+        \\import pf.EchoB
+        \\
+        \\main! = |_args| {
+        \\    EchoA.line!("a")
+        \\    EchoB.line!("b")
+        \\    Ok({})
+        \\}
+        ,
+    });
+    try tmp_dir.dir.writeFile(std.testing.io, .{
+        .sub_path = "app/.roc_hosted_platform/main.roc",
+        .data =
+        \\platform ""
+        \\    requires {} { main! : List(Str) => Try({}, [Exit(I8), ..]) }
+        \\    exposes [EchoA, EchoB]
+        \\    packages {}
+        \\    provides { "roc_main": main_for_host! }
+        \\    hosted { "roc_echo_a_line": EchoA.line!, "roc_echo_b_line": EchoB.line! }
+        \\
+        \\import EchoA
+        \\import EchoB
+        \\
+        \\main_for_host! : List(Str) => I8
+        \\main_for_host! = |args|
+        \\    match main!(args) {
+        \\        Ok({}) => 0
+        \\        Err(Exit(code)) => code
+        \\        Err(_) => 1
+        \\    }
+        ,
+    });
+    // Two hosted modules whose declarations are identical up to the mandated
+    // module/type name, bound to different platform-header symbols.
+    try tmp_dir.dir.writeFile(std.testing.io, .{
+        .sub_path = "app/.roc_hosted_platform/EchoA.roc",
+        .data =
+        \\EchoA := [].{
+        \\    line! : Str => {}
+        \\}
+        ,
+    });
+    try tmp_dir.dir.writeFile(std.testing.io, .{
+        .sub_path = "app/.roc_hosted_platform/EchoB.roc",
+        .data =
+        \\EchoB := [].{
+        \\    line! : Str => {}
+        \\}
+        ,
+    });
+}
+
+test "hosted distinctness: identical hosted declarations bound to different platform symbols stay distinct" {
+    const allocator = std.testing.allocator;
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.createDirPath(std.testing.io, "cache");
+    const cache_dir = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "cache", allocator);
+    defer allocator.free(cache_dir);
+    try writeHostedDistinctnessFixture(&tmp_dir);
+    const app_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "app/main.roc", allocator);
+    defer allocator.free(app_path);
+
+    const roc_ctx = CoreCtx.os(allocator, allocator, std.testing.io);
+    var cache_manager = CacheManager.init(allocator, .{
+        .enabled = true,
+        .cache_dir = cache_dir,
+    }, roc_ctx);
+
+    var builtin_modules = try eval.BuiltinModules.init(allocator);
+    defer builtin_modules.deinit();
+
+    var coord = try Coordinator.init(
+        allocator,
+        .single_threaded,
+        1,
+        roc_target.RocTarget.detectNative(),
+        &builtin_modules,
+        build_options.compiler_version,
+        &cache_manager,
+        roc_ctx,
+    );
+    defer coord.deinit();
+    coord.enable_hosted_transform = true;
+
+    var arena_impl = base.SingleThreadArena.init(allocator);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
+
+    try coord.start();
+    try coord.discoverAppFromPath(arena, .{ .entry_path = app_path });
+    try coord.coordinatorLoop();
+    try std.testing.expect(!coord.hasUserErrors());
+    try coord.finalizeExecutableArtifacts();
+    try std.testing.expect(!coord.hasUserErrors());
+
+    // Per design.md, hosted identities are the platform-header symbol strings
+    // and declaration slots — never content hashes — so no deduplication or
+    // merging step may collapse the two entries even though their declaring
+    // modules are as content-identical as the language allows.
+    const root = coord.executableRootCheckedArtifact();
+    const imports = try coord.collectImportedArtifactViews(arena, root);
+    const relations = try coord.collectRelationArtifactViews(arena, root);
+
+    var symbols = std.ArrayList([]const u8).empty;
+    defer symbols.deinit(allocator);
+    var proc_refs = std.ArrayList(canonical.ProcedureValueRef).empty;
+    defer proc_refs.deinit(allocator);
+
+    var seen_keys = std.ArrayList([32]u8).empty;
+    defer seen_keys.deinit(allocator);
+
+    const root_view = check.CheckedArtifact.importedView(root);
+    const view_groups = [_][]const check.CheckedArtifact.ImportedModuleView{ &.{root_view}, imports, relations };
+    for (view_groups) |views| {
+        views: for (views) |view| {
+            for (seen_keys.items) |seen| {
+                if (std.mem.eql(u8, &seen, &view.key.bytes)) continue :views;
+            }
+            try seen_keys.append(allocator, view.key.bytes);
+            for (view.hosted_procs.procs) |proc| {
+                try symbols.append(allocator, view.canonical_names.externalSymbolNameText(proc.external_symbol_name));
+                try proc_refs.append(allocator, proc.proc);
+            }
+        }
+    }
+
+    // Both hosted procedures survive every merging pass as distinct
+    // identities even though their declaring modules' member declarations
+    // are identical.
+    try std.testing.expectEqual(@as(usize, 2), symbols.items.len);
+    try std.testing.expect(!canonical.procedureValueRefEql(proc_refs.items[0], proc_refs.items[1]));
+
+    // And the platform header binds them to two distinct linker symbols.
+    var linker_symbols = std.ArrayList([]const u8).empty;
+    defer linker_symbols.deinit(allocator);
+    for (view_groups) |views| {
+        for (views) |view| {
+            const env = view.module_env;
+            for (env.hosted_entries.items.items) |entry| {
+                try linker_symbols.append(allocator, env.getString(entry.symbol));
+            }
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), linker_symbols.items.len);
+    try std.testing.expect(!std.mem.eql(u8, linker_symbols.items[0], linker_symbols.items[1]));
+}
+
 fn collectPatternExtractionRegionStats(
     root: *const check.CheckedArtifact.CheckedModuleArtifact,
     imports: []const check.CheckedArtifact.ImportedModuleView,

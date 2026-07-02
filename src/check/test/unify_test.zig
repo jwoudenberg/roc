@@ -2107,3 +2107,172 @@ test "unify order - deferred constraint origin var depends on operand order" {
     // The constraint lands on a different surviving root depending on order.
     try std.testing.expect((try Helper.run(true)) != (try Helper.run(false)));
 }
+
+// content-based nominal identity //
+
+const copy_import = @import("../copy_import.zig");
+
+/// Build a standalone "declaring module" env whose content identity is
+/// finalized from (module_name, source, no imports), holding one nominal
+/// type declaration-shaped var: `Value := {}` with a present source decl.
+const DeclaringModule = struct {
+    env: *ModuleEnv,
+    owned_source: []u8,
+
+    fn init(gpa: std.mem.Allocator, module_name: []const u8, source: []const u8) !DeclaringModule {
+        const owned_source = try gpa.dupe(u8, source);
+        errdefer gpa.free(owned_source);
+        const env = try gpa.create(ModuleEnv);
+        env.* = try ModuleEnv.init(gpa, owned_source);
+        try env.initCIRFields(module_name);
+        try env.ensureContentIdentity(&.{});
+        return .{ .env = env, .owned_source = owned_source };
+    }
+
+    fn deinit(self: *DeclaringModule) void {
+        const gpa = self.env.gpa;
+        self.env.deinit();
+        gpa.destroy(self.env);
+        gpa.free(self.owned_source);
+    }
+
+    /// A nominal type var as its declaring module would produce it.
+    fn mkNominalVar(self: *DeclaringModule, type_name: []const u8, source_decl: u32) !Var {
+        const ident = try self.env.insertIdent(Ident.for_text(type_name));
+        const backing = try self.env.types.freshFromContent(Content{ .structure = .empty_record });
+        const content = try self.env.types.mkNominalWithSourceDecl(
+            .{ .ident_idx = ident },
+            backing,
+            &.{},
+            self.env.selfModuleIdentity(),
+            source_decl,
+            false,
+        );
+        return try self.env.types.freshFromContent(content);
+    }
+};
+
+fn copyIntoConsumer(consumer: *TestEnv, source: *DeclaringModule, var_: Var) !Var {
+    var var_mapping = std.AutoHashMap(Var, Var).init(consumer.module_env.gpa);
+    defer var_mapping.deinit();
+    return try copy_import.copyVar(
+        &source.env.types,
+        &consumer.module_env.types,
+        var_,
+        &var_mapping,
+        source.env,
+        consumer.module_env,
+        consumer.module_env.gpa,
+    );
+}
+
+test "content identity: same module content reached as two envs unifies (two URLs / mirrors / vendored copies)" {
+    const gpa = std.testing.allocator;
+    var consumer = try TestEnv.init(gpa);
+    defer consumer.deinit();
+
+    // The same package content fetched twice (e.g. via two different URLs)
+    // loads as two distinct envs with byte-identical name + source.
+    var json_a = try DeclaringModule.init(gpa, "Json", "Value := {}");
+    defer json_a.deinit();
+    var json_b = try DeclaringModule.init(gpa, "Json", "Value := {}");
+    defer json_b.deinit();
+
+    const from_a = try copyIntoConsumer(&consumer, &json_a, try json_a.mkNominalVar("Value", 7));
+    const from_b = try copyIntoConsumer(&consumer, &json_b, try json_b.mkNominalVar("Value", 7));
+
+    const result = try consumer.unify(from_a, from_b);
+    try std.testing.expectEqual(.ok, result);
+}
+
+test "content identity: changed module content does not unify (version coexistence)" {
+    const gpa = std.testing.allocator;
+    var consumer = try TestEnv.init(gpa);
+    defer consumer.deinit();
+
+    // Two majors of a package coexist in one build: the changed module's
+    // types must stay distinct even though every name matches.
+    var json_v1 = try DeclaringModule.init(gpa, "Json", "Value := {}");
+    defer json_v1.deinit();
+    var json_v2 = try DeclaringModule.init(gpa, "Json", "Value := {}\nextra = 1");
+    defer json_v2.deinit();
+
+    const from_v1 = try copyIntoConsumer(&consumer, &json_v1, try json_v1.mkNominalVar("Value", 7));
+    const from_v2 = try copyIntoConsumer(&consumer, &json_v2, try json_v2.mkNominalVar("Value", 7));
+
+    const result = try consumer.unify(from_v1, from_v2);
+    try std.testing.expect(result.isProblem());
+}
+
+test "content identity: module name participates in identity" {
+    const gpa = std.testing.allocator;
+    var consumer = try TestEnv.init(gpa);
+    defer consumer.deinit();
+
+    // A type module's main type takes its name from the module's file name,
+    // so source bytes alone underdetermine meaning (design.md Cache Boundary).
+    var json = try DeclaringModule.init(gpa, "Json", "Value := {}");
+    defer json.deinit();
+    var toml = try DeclaringModule.init(gpa, "Toml", "Value := {}");
+    defer toml.deinit();
+
+    const from_json = try copyIntoConsumer(&consumer, &json, try json.mkNominalVar("Value", 7));
+    const from_toml = try copyIntoConsumer(&consumer, &toml, try toml.mkNominalVar("Value", 7));
+
+    const result = try consumer.unify(from_json, from_toml);
+    try std.testing.expect(result.isProblem());
+}
+
+test "content identity: declaration reordering changes no identity except via the module's own source hash" {
+    const gpa = std.testing.allocator;
+
+    // Reordering declarations changes the module's source bytes, hence its
+    // deep hash — and nothing else: an unrelated module's identity is
+    // untouched, and the reordered module's identity changes wholesale.
+    var ordered = try DeclaringModule.init(gpa, "M", "A := {}\nB := {}");
+    defer ordered.deinit();
+    var reordered = try DeclaringModule.init(gpa, "M", "B := {}\nA := {}");
+    defer reordered.deinit();
+    var unrelated_1 = try DeclaringModule.init(gpa, "Other", "C := {}");
+    defer unrelated_1.deinit();
+    var unrelated_2 = try DeclaringModule.init(gpa, "Other", "C := {}");
+    defer unrelated_2.deinit();
+
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        ordered.env.contentIdentityHash().?,
+        reordered.env.contentIdentityHash().?,
+    ));
+    try std.testing.expectEqualSlices(
+        u8,
+        unrelated_1.env.contentIdentityHash().?,
+        unrelated_2.env.contentIdentityHash().?,
+    );
+}
+
+test "content identity: deep hash covers transitive imports (byte-identical modules over different deps stay distinct)" {
+    const gpa = std.testing.allocator;
+
+    var dep_v1 = try DeclaringModule.init(gpa, "Dep", "X := {}");
+    defer dep_v1.deinit();
+    var dep_v2 = try DeclaringModule.init(gpa, "Dep", "X := {}\nchanged = 1");
+    defer dep_v2.deinit();
+
+    // Two byte-identical modules whose transitive dependencies differ must
+    // not share identity: their field layouts could differ.
+    var over_v1 = try DeclaringModule.init(gpa, "Api", "T := { x : Dep.X }");
+    defer over_v1.deinit();
+    over_v1.env.self_module_identity = base.ModuleIdentity.Idx.NONE;
+    try over_v1.env.ensureContentIdentity(&.{@as(*const ModuleEnv, dep_v1.env)});
+
+    var over_v2 = try DeclaringModule.init(gpa, "Api", "T := { x : Dep.X }");
+    defer over_v2.deinit();
+    over_v2.env.self_module_identity = base.ModuleIdentity.Idx.NONE;
+    try over_v2.env.ensureContentIdentity(&.{@as(*const ModuleEnv, dep_v2.env)});
+
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        over_v1.env.contentIdentityHash().?,
+        over_v2.env.contentIdentityHash().?,
+    ));
+}
