@@ -3236,7 +3236,7 @@ pub const Coordinator = struct {
         mod.phase = .Done;
         mod.visit_color = .black;
 
-        self.installPlatformRequirementSurface(mod);
+        installPlatformRequirementSurface(mod);
 
         self.cache_hits += 1;
 
@@ -3259,8 +3259,7 @@ pub const Coordinator = struct {
     /// artifact, so the checker input and the cache key can never disagree.
     /// A platform whose check failed publishes no artifact and installs no
     /// surface; its own diagnostics gate the build instead.
-    fn installPlatformRequirementSurface(self: *Coordinator, mod: *ModuleState) void {
-        _ = self;
+    fn installPlatformRequirementSurface(mod: *ModuleState) void {
         const env = mod.moduleEnv() orelse return;
         if (moduleKindTag(env.module_kind) != .platform) return;
         if (env.requires_types.items.items.len == 0) return;
