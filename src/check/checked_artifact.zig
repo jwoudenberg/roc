@@ -6463,7 +6463,7 @@ test "checked artifact builtin nominal categorization requires explicit builtin 
 
 fn moduleEnvIdentityMatches(module_env: *const ModuleEnv, origin_hash: *const [32]u8) bool {
     const env_hash = module_env.contentIdentityHash() orelse return false;
-    return std.mem.eql(u8, env_hash, origin_hash);
+    return base.ModuleIdentity.eql(env_hash, origin_hash);
 }
 
 fn checkedNominalRepresentationForSourceNominal(
@@ -22504,7 +22504,7 @@ fn appendPublicApiModuleDependency(
     type_owner_keys: *ArtifactKeyAccumulator,
 ) Allocator.Error!void {
     const origin_hash = names.moduleIdentityBytes(origin_module);
-    if (std.mem.eql(u8, origin_hash, &module_identity.stable_hash)) return;
+    if (base.ModuleIdentity.eql(origin_hash, &module_identity.stable_hash)) return;
 
     const view = publicApiDependencyViewByIdentity(origin_hash, imports, available_artifacts) orelse {
         checkedArtifactInvariant("public API dependency scan could not find checked artifact for a type-owning module", .{});
@@ -22533,7 +22533,7 @@ fn publicApiDependencyViewByIdentity(
 }
 
 fn importedViewIdentityMatches(view: ImportedModuleView, origin_hash: *const [32]u8) bool {
-    return std.mem.eql(u8, &view.module_identity.stable_hash, origin_hash);
+    return base.ModuleIdentity.eql(&view.module_identity.stable_hash, origin_hash);
 }
 
 fn appendPublicApiDependencyView(

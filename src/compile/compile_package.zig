@@ -549,7 +549,7 @@ fn moduleEnvIdentitiesMatch(a: *const ModuleEnv, b: *const ModuleEnv) bool {
     if (@intFromPtr(a) == @intFromPtr(b)) return true;
     const a_hash = a.contentIdentityHash() orelse return false;
     const b_hash = b.contentIdentityHash() orelse return false;
-    return std.mem.eql(u8, a_hash, b_hash);
+    return base.ModuleIdentity.eql(a_hash, b_hash);
 }
 
 fn availableArtifactByKey(

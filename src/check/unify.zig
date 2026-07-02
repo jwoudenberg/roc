@@ -2898,11 +2898,11 @@ pub const Scratch = struct {
 // on which pipeline built an artifact, what the coordinator named a package,
 // or what directory the build ran in. The within-module discriminator is the
 // declaration: the packed source-decl statement when present (statement
-// indices are stable across artifacts because equal content identities imply
-// byte-identical module source), falling back to the type ident for
-// declaration-less synthetic nominals. The ident fallback cannot replace the
-// statement for decl-backed builtins, whose minted idents ("U8") and declared
-// relative names ("Num.U8") are spelled differently.
+// indices are stable across checked modules because equal content identities
+// imply byte-identical module source), and the type ident only for
+// declaration-less synthetic nominals. The ident comparison cannot replace
+// the statement for decl-backed builtins, whose minted idents ("U8") and
+// declared relative names ("Num.U8") are spelled differently.
 fn sameAliasIdentity(a: Alias, b: Alias) bool {
     if (a.origin_module != b.origin_module) return false;
     if (a.source_decl.present or b.source_decl.present) {

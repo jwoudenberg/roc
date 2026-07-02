@@ -889,9 +889,9 @@ const Builder = struct {
     }
 
     /// Resolve a named type's declaring module by 32-byte content identity —
-    /// an exact byte comparison against each candidate view's module identity
-    /// hash. Byte-identical module content reached through several artifacts
-    /// is interchangeable as a declaring module, so the first match wins.
+    /// an exact comparison against each candidate view's module identity
+    /// hash. Byte-identical module content reached through several checked
+    /// modules is interchangeable as a declaring module; the first match wins.
     fn moduleDigestForOrigin(self: *Builder, view: ModuleView, origin_module: names.ModuleIdentityId) names.CheckedModuleDigest {
         const origin_hash = view.names.moduleIdentityBytes(origin_module);
         if (moduleViewIdentityMatches(view, origin_hash)) return moduleDigestFromId(view.key);
@@ -23340,7 +23340,7 @@ fn moduleView(view: checked.ImportedModuleView) ModuleView {
 }
 
 fn moduleViewIdentityMatches(view: ModuleView, origin_hash: *const [32]u8) bool {
-    return std.mem.eql(u8, &view.module_identity.stable_hash, origin_hash);
+    return base.ModuleIdentity.eql(&view.module_identity.stable_hash, origin_hash);
 }
 
 fn restoreScalar(scalar: checked.ConstScalar) Ast.ExprData {

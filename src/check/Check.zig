@@ -12120,7 +12120,7 @@ fn ownerEnvForOriginModule(
 
 fn ownerEnvIdentityMatches(candidate: *const ModuleEnv, origin_hash: *const base.ModuleIdentity.Hash) bool {
     const candidate_hash = candidate.contentIdentityHash() orelse return false;
-    return std.mem.eql(u8, candidate_hash, origin_hash);
+    return base.ModuleIdentity.eql(candidate_hash, origin_hash);
 }
 
 fn debugAssertOwnerEnvSourceDecl(candidate: *const ModuleEnv, source_decl: u32, context: []const u8) void {

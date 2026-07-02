@@ -98,6 +98,14 @@ pub fn computeDeep(
     return hasher.finalResult();
 }
 
+/// Integer equality over two 32-byte identity hashes (a single 256-bit
+/// compare — no byte-wise string comparison).
+pub fn eql(a: *const Hash, b: *const Hash) bool {
+    const a_bits: u256 = @bitCast(a.*);
+    const b_bits: u256 = @bitCast(b.*);
+    return a_bits == b_bits;
+}
+
 fn hashLessThan(_: void, a: Hash, b: Hash) bool {
     return std.mem.order(u8, &a, &b) == .lt;
 }
