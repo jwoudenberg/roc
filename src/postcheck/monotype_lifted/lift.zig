@@ -139,6 +139,8 @@ pub fn run(
     try lifter.lowerDefsAndRoots();
     program.next_symbol = lifter.symbols.next;
 
+    verifyCaptureInvariants(&program);
+
     owned.deinit();
     return program;
 }
@@ -202,6 +204,88 @@ pub fn recomputeCaptures(allocator: Allocator, program: *Ast.Program) Allocator.
     for (program.fns.items, 0..) |*fn_, index| {
         fn_.captures = try program.addTypedLocalSpan(fn_captures[index].items);
     }
+
+    verifyCaptureInvariants(program);
+}
+
+/// Debug-only structural check that a Lifted program's capture representation is
+/// internally consistent. It is run after every Lifted-IR mutation (the initial
+/// lift and `recomputeCaptures`, which follows spec_constr / any body rewrite),
+/// so a pass that forgets to maintain captures fails deterministically at its
+/// own boundary instead of surfacing as a confusing crash five stages later.
+/// Compiled out entirely in release builds — release cost is zero.
+///
+/// It checks, per function and per `fn_ref`/`call_proc` site:
+///   - every capture slot's local carries a CaptureId, and the slot's type
+///     agrees with that local's type;
+///   - a function's capture slots are sorted by CaptureId with no duplicates;
+///   - every canonical CaptureId names its local's live checked binder;
+///   - an operand span carries exactly the target function's capture slots'
+///     CaptureId sequence (same ids, same sorted order), and each operand's
+///     value type equals its slot's type.
+pub fn verifyCaptureInvariants(program: *const Ast.Program) void {
+    if (@import("builtin").mode != .Debug) return;
+    const violation = checkCaptureInvariants(program) catch |err| switch (err) {
+        error.OutOfMemory => Common.invariant("verifyCaptureInvariants: out of memory during structural check"),
+    };
+    if (violation) |message| std.debug.panic("postcheck invariant violated: {s}", .{message});
+}
+
+/// The check itself, factored out of the panicking wrapper so it can be unit
+/// tested: returns the first violated invariant's message, or null if the
+/// program's capture representation is consistent.
+pub fn checkCaptureInvariants(program: *const Ast.Program) Allocator.Error!?[]const u8 {
+    for (program.fns.items) |fn_| {
+        if (checkCaptureSlotSpan(program, program.typedLocalSpan(fn_.captures))) |message| return message;
+    }
+
+    for (program.exprs.items) |expr| {
+        switch (expr.data) {
+            .fn_ref => |fn_ref| if (try checkOperandSpan(program, fn_ref.fn_id, fn_ref.captures)) |message| return message,
+            .call_proc => |call| switch (call.callee) {
+                .lifted => |fn_id| if (try checkOperandSpan(program, fn_id, call.captures)) |message| return message,
+                .func => {},
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+fn checkCaptureSlotSpan(program: *const Ast.Program, slots: []const Ast.TypedLocal) ?[]const u8 {
+    var previous: ?checked.CaptureId = null;
+    for (slots) |slot| {
+        const local = program.locals.items[@intFromEnum(slot.local)];
+        const id = local.capture_id orelse return "capture slot local had no CaptureId";
+        if (slot.ty != local.ty) return "capture slot type disagreed with its local type";
+        if (id.isCanonical()) {
+            const binder = local.binder orelse return "canonical capture slot had no checked binder";
+            if (id != checked.CaptureId.fromBinder(binder)) return "canonical CaptureId did not match its binder";
+        }
+        if (previous) |prev| {
+            if (@intFromEnum(prev) > @intFromEnum(id)) return "capture slots not sorted by CaptureId";
+            if (@intFromEnum(prev) == @intFromEnum(id)) return "duplicate CaptureId in a capture set";
+        }
+        previous = id;
+    }
+    return null;
+}
+
+fn checkOperandSpan(program: *const Ast.Program, fn_id: Ast.FnId, operand_span: Ast.Span(Ast.CaptureOperand)) Allocator.Error!?[]const u8 {
+    const slots = program.typedLocalSpan(program.fns.items[@intFromEnum(fn_id)].captures);
+    const operands = program.captureOperandSpan(operand_span);
+    if (slots.len != operands.len) return "operand count differed from target capture slot count";
+    for (slots, operands) |slot, operand| {
+        if (operand.id != slotCaptureId(program, slot)) return "operand CaptureId did not match its slot";
+        // Types are compared structurally: monomorphization/specialization may
+        // give the operand value and its slot distinct interned TypeIds for the
+        // same type.
+        const value_ty = program.exprs.items[@intFromEnum(operand.value)].ty;
+        if (!try program.types.typeEql(&program.names, value_ty, slot.ty)) {
+            return "operand value type differed from its capture slot type";
+        }
+    }
+    return null;
 }
 
 const DefMap = []?Ast.FnId;
