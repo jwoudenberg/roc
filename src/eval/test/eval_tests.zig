@@ -1518,6 +1518,63 @@ const core_tests = [_]TestCase{
     },
     .{ .name = "inspect: typed identity closure on string", .source = "(|s| s)(\"Test\")", .expected = .{ .inspect_str = "\"Test\"" } },
 
+    // CaptureId regression suite: exercises the canonical-CaptureId join through
+    // nested/curried closures, closures held before application, capture-set
+    // reshaping, and captures that also appear inside call arguments.
+    // Repro for issue 9897 ("function reference capture count differs from its
+    // target"): the middle closure is bound and applied separately, so each
+    // fn_ref must carry exactly its target's capture slots.
+    .{
+        .name = "capture-id: nested closure held before application",
+        .source =
+        \\{
+        \\    make = |x| |y| |z| x + y + z
+        \\    partial = make(1.I64)(2.I64)
+        \\    partial(3.I64)
+        \\}
+        ,
+        .expected = .{ .inspect_str = "6" },
+    },
+    // Repro for PR 9874's order-sensitivity: a 5-deep curried chain, each level
+    // adding a capture, so the capture spans must stay canonically ordered.
+    .{
+        .name = "capture-id: five-deep curried capture chain",
+        .source = "(|a| |b| |c| |d| |e| a + b + c + d + e)(1.I64)(2.I64)(3.I64)(4.I64)(5.I64)",
+        .expected = .{ .inspect_str = "15" },
+    },
+    // A captured variable that also appears inside a record argument to the
+    // closure it is passed to, reshaped by specialization.
+    .{
+        .name = "capture-id: captured var also used in a record argument",
+        .source =
+        \\{
+        \\    outer = |seed| {
+        \\        inner = |next, arg| seed + next.n + arg
+        \\        inner({ n: seed }, seed * 10.I64)
+        \\    }
+        \\    outer(2.I64)
+        \\}
+        ,
+        .expected = .{ .inspect_str = "24" },
+    },
+    // Two sibling closures capture the same outer binding via a shared helper,
+    // so the capture-set fixpoint must give both the same canonical CaptureId.
+    .{
+        .name = "capture-id: sibling closures share one captured binding",
+        .source =
+        \\{
+        \\    base = 10.I64
+        \\    pick = |flag| {
+        \\        add = |n| base + n
+        \\        sub = |n| base - n
+        \\        if flag add(3.I64) else sub(3.I64)
+        \\    }
+        \\    pick(True) + pick(False)
+        \\}
+        ,
+        .expected = .{ .inspect_str = "20" },
+    },
+
     // Untyped closures, HOFs, and recursion
     .{
         .name = "inspect: closure capturing one local variable",

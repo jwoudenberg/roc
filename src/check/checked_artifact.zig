@@ -2090,6 +2090,8 @@ pub const StaticDispatchPlanId = static_dispatch.StaticDispatchPlanId;
 pub const IteratorForPlanId = static_dispatch.IteratorForPlanId;
 /// Public `PatternBinderId` declaration.
 pub const PatternBinderId = checked_ids.PatternBinderId;
+/// Public `CaptureId` declaration.
+pub const CaptureId = checked_ids.CaptureId;
 
 /// Public `CheckedTypeRoot` declaration.
 pub const CheckedTypeRoot = struct {
@@ -6685,6 +6687,10 @@ pub const CheckedExhaustivenessSiteTable = struct {
 pub const CheckedCapture = struct {
     pattern: CheckedPatternId,
     scope_depth: u32,
+    /// Canonical identity of the captured binding, carried immutably through
+    /// every post-check IR. Derived from the capture's binder, so it is a pure
+    /// function of (module name, source bytes) and cache-safe to serialize.
+    capture_id: CaptureId,
 };
 
 /// Public `CheckedRecordDestructKind` declaration.
@@ -10533,9 +10539,11 @@ const CheckedBodyPayloadCopier = struct {
         const out = try self.allocator.alloc(CheckedCapture, source.len);
         for (source, 0..) |capture_idx, i| {
             const capture = self.module.moduleEnvConst().store.getCapture(capture_idx);
+            const binder = try self.patternBinder(capture.pattern_idx);
             out[i] = .{
                 .pattern = self.checkedPattern(capture.pattern_idx),
                 .scope_depth = capture.scope_depth,
+                .capture_id = CaptureId.fromBinder(binder),
             };
         }
         return out;
@@ -25248,7 +25256,7 @@ pub const CheckedModuleArtifact = struct {
     /// Manual discriminant for `SERIALIZED_VERSION_HASH`: bump to force a cache /
     /// baked-blob invalidation for a layout change the structural fingerprint below
     /// cannot observe (e.g. a semantic change to how a field is interpreted).
-    const serialized_layout_version: u32 = 5;
+    const serialized_layout_version: u32 = 7;
 
     /// Comptime fingerprint of `Serialized`'s layout, mirroring
     /// `cache_module.MODULE_ENV_VERSION_HASH`. It is appended to the baked builtin
@@ -29094,8 +29102,8 @@ test "SERIALIZED_VERSION_HASH golden value" {
     // change, bump `serialized_layout_version` and replace the golden bytes below with
     // the ones this assertion prints.
     const golden: [32]u8 = .{
-        0x32, 0xA5, 0x67, 0x52, 0xA5, 0xFF, 0x07, 0x98, 0xC3, 0x20, 0xD9, 0x35, 0xEC, 0x50, 0x59, 0x20,
-        0x82, 0xCD, 0x81, 0xCC, 0x00, 0x46, 0xD9, 0x6E, 0xD8, 0xE4, 0xB7, 0x0B, 0x4E, 0x80, 0xAE, 0x41,
+        0xFB, 0x58, 0xCC, 0xA0, 0x31, 0xE8, 0x80, 0x87, 0x26, 0x9D, 0x4E, 0x1B, 0xA4, 0xA5, 0x46, 0x0F,
+        0xE0, 0xCF, 0x29, 0x42, 0xE1, 0xC9, 0x31, 0x09, 0xE0, 0xFC, 0xBC, 0x64, 0x2B, 0x21, 0xCD, 0xF6,
     };
     try std.testing.expectEqualSlices(u8, &golden, &CheckedModuleArtifact.SERIALIZED_VERSION_HASH);
 }
