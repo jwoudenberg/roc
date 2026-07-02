@@ -35,35 +35,52 @@ pub const PatternBinderId = enum(u32) { _ };
 ///    recoverable via `binder()`.
 ///  - **generated** (high bit set, `[2^31, 2^32)`): the identity of a
 ///    compiler-synthesized capturable local that has no checked binder —
-///    allocated deterministically by the pass that synthesizes it (compile-time
-///    evaluation during checking, closure lifting / spec_constr afterwards).
-///    The index is a per-owner counter (a `ConstStore` closure during checking,
-///    a Monotype/Lifted program afterwards).
+///    allocated deterministically by the pass that synthesizes it. The
+///    generated range is split again by the next bit into two disjoint
+///    sub-ranges so ids minted by different synthesizing passes can never
+///    collide inside a single function's capture set:
+///      - **check** (`0x8000_0000` | index): compile-time evaluation during
+///        checking. The index is a per-`ConstStore`-closure counter and must be
+///        stable, because it round-trips through serialized `ConstStore`
+///        captures.
+///      - **lift** (`0xC000_0000` | index): closure lifting / spec_constr after
+///        checking. The index is a per-Lifted-program counter. These ids never
+///        enter checked artifacts (post-check IRs are not cached).
 pub const CaptureId = enum(u32) {
     _,
 
     /// High bit distinguishing generated ids from canonical ids.
     const generated_bit: u32 = 0x8000_0000;
-    /// Largest index representable in either range.
-    pub const max_index: u32 = generated_bit - 1;
+    /// Within the generated range, distinguishes lift-time from check-time ids.
+    const lift_bit: u32 = 0x4000_0000;
+    /// Largest index representable in a canonical id.
+    pub const max_canonical_index: u32 = generated_bit - 1;
+    /// Largest index representable in a generated sub-range.
+    pub const max_generated_index: u32 = lift_bit - 1;
 
     /// The canonical capture id for a captured binder.
     pub fn fromBinder(id: PatternBinderId) CaptureId {
-        const raw = @intFromEnum(id);
-        std.debug.assert(raw <= max_index);
-        return @enumFromInt(raw);
+        return canonical(@intFromEnum(id));
     }
 
     /// The canonical capture id for a raw binder index.
     pub fn canonical(index: u32) CaptureId {
-        std.debug.assert(index <= max_index);
+        std.debug.assert(index <= max_canonical_index);
         return @enumFromInt(index);
     }
 
-    /// The generated capture id for a per-owner counter value.
-    pub fn generated(index: u32) CaptureId {
-        std.debug.assert(index <= max_index);
+    /// The generated capture id minted by compile-time evaluation for a
+    /// per-`ConstStore`-closure counter value.
+    pub fn generatedCheck(index: u32) CaptureId {
+        std.debug.assert(index <= max_generated_index);
         return @enumFromInt(index | generated_bit);
+    }
+
+    /// The generated capture id minted by closure lifting / spec_constr for a
+    /// per-Lifted-program counter value.
+    pub fn generatedLift(index: u32) CaptureId {
+        std.debug.assert(index <= max_generated_index);
+        return @enumFromInt(index | generated_bit | lift_bit);
     }
 
     /// Whether this id names a captured checked binder.
@@ -83,8 +100,8 @@ pub const CaptureId = enum(u32) {
         return @enumFromInt(@intFromEnum(self));
     }
 
-    /// The per-owner counter value of a generated id. Asserts the id is
-    /// generated.
+    /// The opaque low-31-bit index of a generated id, unique within its
+    /// generated sub-range. Asserts the id is generated.
     pub fn generatedIndex(self: CaptureId) u32 {
         std.debug.assert(self.isGenerated());
         return @intFromEnum(self) & ~generated_bit;

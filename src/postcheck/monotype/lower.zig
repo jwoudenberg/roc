@@ -3337,8 +3337,8 @@ const Builder = struct {
             .def_ref,
             => return false,
             .fn_ref => |fn_ref| {
-                for (self.program.exprSpan(fn_ref.captures)) |capture| {
-                    if (try self.exprDependsOnFreeLocalInner(capture, target, bound, active_fns)) return true;
+                for (self.program.captureOperandSpan(fn_ref.captures)) |operand| {
+                    if (try self.exprDependsOnFreeLocalInner(operand.value, target, bound, active_fns)) return true;
                 }
                 return false;
             },
@@ -3408,8 +3408,8 @@ const Builder = struct {
                 for (self.program.exprSpan(call.args)) |arg| {
                     if (try self.exprDependsOnFreeLocalInner(arg, target, bound, active_fns)) return true;
                 }
-                for (self.program.exprSpan(call.captures)) |capture| {
-                    if (try self.exprDependsOnFreeLocalInner(capture, target, bound, active_fns)) return true;
+                for (self.program.captureOperandSpan(call.captures)) |operand| {
+                    if (try self.exprDependsOnFreeLocalInner(operand.value, target, bound, active_fns)) return true;
                 }
                 return false;
             },
@@ -5294,6 +5294,9 @@ const BodyDraftStore = struct {
             .symbol = symbol,
             .ty = ty,
             .binder = binder,
+            // A binder-backed local carries the canonical capture identity of
+            // its binding, so any function that captures it joins by CaptureId.
+            .capture_id = if (binder) |b| checked.CaptureId.fromBinder(b) else null,
         });
         try self.local_names.append(self.allocator, .empty());
         return id;
@@ -5442,7 +5445,7 @@ const BodyDraftStore = struct {
     }
 
     fn setLocalCaptureId(self: *BodyDraftStore, id: DraftLocalId, capture_id: u32) void {
-        self.locals.items[@intFromEnum(id)].capture_id = checked.CaptureId.generated(capture_id);
+        self.locals.items[@intFromEnum(id)].capture_id = checked.CaptureId.generatedCheck(capture_id);
     }
 
     fn setLocalType(self: *BodyDraftStore, id: DraftLocalId, ty: DraftTypeCell) void {
@@ -5810,12 +5813,17 @@ const BodyDraftStore = struct {
                 .callee = ids.expr(call.callee),
                 .args = ids.exprSpan(call.args),
             } },
-            .call_proc => |call| .{ .call_proc = .{
-                .callee = ids.procCallee(call.callee),
-                .args = ids.exprSpan(call.args),
-                .captures = ids.exprSpan(call.captures),
-                .is_cold = call.is_cold,
-            } },
+            .call_proc => |call| blk: {
+                // Pre-lift direct calls never carry capture operands; closure
+                // lifting resolves them. Preserve that as an invariant.
+                std.debug.assert(call.captures.len == 0);
+                break :blk .{ .call_proc = .{
+                    .callee = ids.procCallee(call.callee),
+                    .args = ids.exprSpan(call.args),
+                    .captures = Ast.Span(Ast.CaptureOperand).empty(),
+                    .is_cold = call.is_cold,
+                } };
+            },
             .low_level => |call| .{ .low_level = .{
                 .op = call.op,
                 .args = ids.exprSpan(call.args),
