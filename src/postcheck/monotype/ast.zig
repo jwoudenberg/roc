@@ -259,9 +259,9 @@ pub const Local = struct {
     symbol: Common.Symbol,
     ty: Type.TypeId,
     binder: ?checked.PatternBinderId = null,
-    /// Canonical identity of this local as a closure capture, carried
+    /// Exact identity of this local as a closure capture, carried
     /// immutably through every post-check IR. Non-null for a captured binding
-    /// (canonical, derived from `binder`) and for a compiler-synthesized
+    /// (binder-derived) and for a compiler-synthesized
     /// capturable local (generated).
     capture_id: ?checked.CaptureId = null,
 };
@@ -1289,7 +1289,7 @@ pub const ProgramBuilder = struct {
             .symbol = symbol,
             .ty = ty,
             .binder = binder,
-            // A binder-backed local carries the canonical capture identity of
+            // A binder-backed local carries the exact capture identity of
             // its binding, so any function that captures it joins by CaptureId.
             .capture_id = if (binder) |b| checked.CaptureId.fromBinder(b) else null,
         });

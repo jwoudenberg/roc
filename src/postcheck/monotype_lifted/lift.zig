@@ -219,7 +219,7 @@ pub fn recomputeCaptures(allocator: Allocator, program: *Ast.Program) Allocator.
 ///   - every capture slot's local carries a CaptureId, and the slot's type
 ///     agrees with that local's type;
 ///   - a function's capture slots are sorted by CaptureId with no duplicates;
-///   - every canonical CaptureId names its local's live checked binder;
+///   - every binder-derived CaptureId names its local's live checked binder;
 ///   - an operand span carries exactly the target function's capture slots'
 ///     CaptureId sequence (same ids, same sorted order), and each operand's
 ///     value type equals its slot's type.
@@ -259,8 +259,8 @@ fn checkCaptureSlotSpan(program: *const Ast.Program, slots: []const Ast.TypedLoc
         const id = local.capture_id orelse return "capture slot local had no CaptureId";
         if (slot.ty != local.ty) return "capture slot type disagreed with its local type";
         if (id.isCanonical()) {
-            const binder = local.binder orelse return "canonical capture slot had no checked binder";
-            if (id != checked.CaptureId.fromBinder(binder)) return "canonical CaptureId did not match its binder";
+            const binder = local.binder orelse return "binder-derived capture slot had no checked binder";
+            if (id != checked.CaptureId.fromBinder(binder)) return "binder-derived CaptureId did not match its binder";
         }
         if (previous) |prev| {
             if (@intFromEnum(prev) > @intFromEnum(id)) return "capture slots not sorted by CaptureId";
@@ -882,9 +882,9 @@ fn deinitCaptureTable(allocator: Allocator, captures: []std.ArrayList(Ast.TypedL
 /// When the value-local carries no CaptureId (e.g. a spec_constr-minted arg or
 /// temp local produced by argument splitting/inlining), no value identity is
 /// available, so the operand's stored id — set when the operand was built for a
-/// specific slot — is the only identity and is honored as a fallback. Genuinely
+/// specific slot — is the only identity and is honored when present. Genuinely
 /// explicit (non-local) values likewise fall back to their stored id. A
-/// value-id match always takes precedence over a stored-id fallback.
+/// value-id match always takes precedence over the stored id.
 fn operandValueForSlotId(program: *const Ast.Program, existing: []const Ast.CaptureOperand, id: checked.CaptureId) ?Ast.ExprId {
     var fallback_by_id: ?Ast.ExprId = null;
     for (existing) |operand| {
@@ -904,7 +904,7 @@ fn operandValueForSlotId(program: *const Ast.Program, existing: []const Ast.Capt
     return fallback_by_id;
 }
 
-/// Rebuild a function reference / direct call's keyed capture operand span so it
+/// Recompute a function reference / direct call's keyed capture operand span so it
 /// matches `slots` (the target's canonically-sorted capture slots) exactly, in
 /// the same order. Each operand's value is preserved from the node's existing
 /// operands (keyed by CaptureId) when present — this keeps explicit non-local
@@ -940,7 +940,7 @@ fn rebuildCaptureOperandSpan(
     return try program.addCaptureOperandSpan(operands);
 }
 
-/// Rebuild every function reference / direct call's capture operand span to
+/// Recompute every function reference / direct call's capture operand span to
 /// match the recomputed capture slots in `fn_captures`. Used after a Lifted-IR
 /// mutation (spec_constr, inlining) reshapes capture sets.
 fn finalizeProgramFunctionReferenceCaptures(
@@ -955,7 +955,7 @@ fn finalizeProgramFunctionReferenceCaptures(
                 const fn_index = @intFromEnum(fn_ref.fn_id);
                 if (fn_index >= fn_captures.len) Common.invariant("function reference target missing recomputed captures");
 
-                // Always rebuild: even when the target's capture set is
+                // Always recompute: even when the target's capture set is
                 // unchanged, a caller-side operand value can have been rewritten
                 // by spec_constr, so the operand span must be re-derived from the
                 // current values, keyed to the target's recomputed slots.
@@ -1029,7 +1029,7 @@ fn captureListEql(lhs: []const Ast.TypedLocal, rhs: []const Ast.TypedLocal) bool
     return true;
 }
 
-/// The canonical/generated CaptureId of a capture slot. Every capture slot's
+/// The CaptureId of a capture slot. Every capture slot's
 /// local carries a CaptureId (assigned at creation for binder-backed and
 /// compile-time locals, in `addIfFree` for lift-synthesized locals).
 fn slotCaptureId(program: *const Ast.Program, slot: Ast.TypedLocal) checked.CaptureId {
@@ -1041,7 +1041,7 @@ fn captureSlotLessThan(program: *const Ast.Program, lhs: Ast.TypedLocal, rhs: As
     return @intFromEnum(slotCaptureId(program, lhs)) < @intFromEnum(slotCaptureId(program, rhs));
 }
 
-/// Sort a capture set into canonical CaptureId order so operand↔slot joins are
+/// Sort a capture set into ascending CaptureId order so operand↔slot joins are
 /// an exact keyed walk and slot order is never load-bearing. Also asserts (in
 /// debug) that no CaptureId appears twice.
 fn sortCaptureSlots(program: *const Ast.Program, items: []Ast.TypedLocal) void {
@@ -1539,11 +1539,12 @@ test "checkCaptureInvariants accepts a well-formed capture and catches a corrupt
     // One capturing function: a single binder-backed capture slot, and a
     // function reference that supplies it with a keyed operand.
     const ty = try program.types.add(.zst);
-    const binder: checked.PatternBinderId = @enumFromInt(0);
-    const cap_local = try program.addLocalWithBinder(@enumFromInt(0), ty, binder);
+    const binder: checked.PatternBinderId = @enumFromInt(1);
+    const cap_local = try program.addLocalWithBinder(@enumFromInt(1), ty, binder);
     const cap_span = try program.addTypedLocalSpan(&.{.{ .local = cap_local, .ty = ty }});
+    const fn_id: Ast.FnId = @enumFromInt(@as(u32, @intCast(program.fns.items.len)));
     try program.fns.append(allocator, .{
-        .symbol = @enumFromInt(0),
+        .symbol = @enumFromInt(1),
         .args = Ast.Span(Ast.TypedLocal).empty(),
         .captures = cap_span,
         .body = .hosted,
@@ -1552,7 +1553,7 @@ test "checkCaptureInvariants accepts a well-formed capture and catches a corrupt
     const value = try program.addExpr(.{ .ty = ty, .data = .{ .local = cap_local } });
     const op_span = try program.addCaptureOperandSpan(&.{.{ .id = checked.CaptureId.fromBinder(binder), .value = value }});
     _ = try program.addExpr(.{ .ty = ty, .data = .{ .fn_ref = .{
-        .fn_id = @as(Ast.FnId, @enumFromInt(0)),
+        .fn_id = fn_id,
         .captures = op_span,
     } } });
 
@@ -1561,7 +1562,7 @@ test "checkCaptureInvariants accepts a well-formed capture and catches a corrupt
 
     // Intentionally skip capture maintenance: give the operand a CaptureId that
     // no longer matches its slot. The debug pass must catch it deterministically.
-    program.capture_operands.items[0].id = checked.CaptureId.fromBinder(@enumFromInt(1));
+    program.capture_operands.items[0].id = checked.CaptureId.fromBinder(@enumFromInt(2));
     try std.testing.expectEqualStrings(
         "operand CaptureId did not match its slot",
         (try checkCaptureInvariants(&program)).?,

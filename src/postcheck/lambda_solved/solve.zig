@@ -1437,11 +1437,7 @@ const Solver = struct {
         for (0..lhs.count()) |i| {
             const left_capture = self.program.types.captureItem(lhs, i);
             const right_capture = self.program.types.captureItem(rhs, i);
-            if (left_capture.local != right_capture.local or
-                left_capture.symbol != right_capture.symbol or
-                left_capture.binder != right_capture.binder or
-                left_capture.capture_id != right_capture.capture_id)
-            {
+            if (left_capture.capture_id != right_capture.capture_id) {
                 Common.invariant("capture identity failed Lambda Solved unification");
             }
             try self.unify(left_capture.ty, right_capture.ty);

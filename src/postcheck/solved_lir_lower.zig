@@ -788,7 +788,7 @@ const Lowerer = struct {
         if (captures.len != fields.len) Common.invariant("function capture argument arity differed from capture slots");
 
         for (captures, fields) |capture, field| {
-            if (capture.symbol != field.symbol or capture.binder != field.binder or capture.capture_id != field.capture_id) {
+            if (capture.capture_id != field.capture_id) {
                 Common.invariant("function capture argument fields differed from capture slots");
             }
             try self.captures.put(capture.local, .{
@@ -829,7 +829,7 @@ const Lowerer = struct {
         if (local_id == capture_local) return true;
 
         // A body reference and a capture slot name the same captured binding
-        // iff they carry the same CaptureId (the canonical join key that
+        // iff they carry the same CaptureId (the exact join key that
         // survives specialization/cloning). This is only used to search a
         // function's own capture set, where CaptureIds are unique.
         const local = self.solved.lifted.locals.items[@intFromEnum(local_id)];
@@ -2295,13 +2295,11 @@ const Lowerer = struct {
     fn lowerCaptureRecordFromCaptureExprsInto(
         self: *Lowerer,
         target: LIR.LocalId,
-        fn_id: Lifted.FnId,
         capture_span: SolvedType.Span,
         capture_operands: []const Lifted.CaptureOperand,
         capture_ty: Type.TypeId,
         next: LIR.CFStmtId,
     ) Common.LowerError!LIR.CFStmtId {
-        _ = fn_id;
         const captures = self.solved.types.captureSpan(capture_span);
         const fields = switch (self.types.get(capture_ty)) {
             .capture_record => |fields| self.types.captureFieldSpan(fields),
@@ -2319,9 +2317,9 @@ const Lowerer = struct {
 
         const target_is_zst = self.isZstLocal(target);
         // Member captures, capture-record fields, and keyed operands are all in
-        // canonical CaptureId order, so the join is an exact indexed walk.
+        // ascending CaptureId order, so the join is an exact indexed walk.
         for (captures, fields, capture_operands, 0..) |capture, field, operand, i| {
-            if (capture.symbol != field.symbol or capture.binder != field.binder or capture.capture_id != field.capture_id) {
+            if (capture.capture_id != field.capture_id) {
                 Common.invariant("callable capture payload fields differed from captured locals");
             }
             const capture_id = capture.capture_id orelse Common.invariant("member capture had no CaptureId");
@@ -3041,7 +3039,7 @@ const Lowerer = struct {
                     .payload = payload,
                     .next = next,
                 } });
-            return try self.lowerCaptureRecordFromCaptureExprsInto(payload, lifted_fn_id, captures, capture_operands, payload_ty, assign);
+            return try self.lowerCaptureRecordFromCaptureExprsInto(payload, captures, capture_operands, payload_ty, assign);
         }
         if (capture_operands.len != 0) Common.invariant("finite callable without capture payload carried capture operands");
         if (self.isZstLocal(target)) return try self.assignZst(target, next);
@@ -3085,7 +3083,7 @@ const Lowerer = struct {
             .on_drop = on_drop,
             .next = next,
         } });
-        if (capture_ty) |ty| return try self.lowerCaptureRecordFromCaptureExprsInto(capture.?, lifted_fn_id, captures, capture_operands, ty, assign);
+        if (capture_ty) |ty| return try self.lowerCaptureRecordFromCaptureExprsInto(capture.?, captures, capture_operands, ty, assign);
         if (capture_operands.len != 0) Common.invariant("erased callable without capture payload carried capture operands");
         return assign;
     }
@@ -3111,7 +3109,7 @@ const Lowerer = struct {
             Common.invariant("capturing direct call target had no capture record type");
         const capture_local = try self.addTemp(capture_ty);
         const call = try self.lowerKnownCallInto(target, result_ty, target_fn, args, capture_local, is_cold, next);
-        return try self.lowerCaptureRecordFromCaptureExprsInto(capture_local, callee, captures, capture_operands, capture_ty, call);
+        return try self.lowerCaptureRecordFromCaptureExprsInto(capture_local, captures, capture_operands, capture_ty, call);
     }
 
     fn lowerKnownCallInto(
@@ -6466,7 +6464,7 @@ const Lowerer = struct {
 
     fn captureFieldIndexInFields(fields: []const Type.CaptureField, needle: Type.CaptureField) usize {
         for (fields, 0..) |field, index| {
-            // CaptureId is the canonical identity of a capture-record field.
+            // CaptureId is the exact identity of a capture-record field.
             if (field.capture_id == needle.capture_id) return index;
         }
         Common.invariant("capture record boundary target field was absent from source");
@@ -6681,8 +6679,6 @@ const Lowerer = struct {
         const rhs = self.types.captureFieldSpan(rhs_span);
         if (lhs.len != rhs.len) return false;
         for (lhs, rhs) |lhs_field, rhs_field| {
-            if (lhs_field.symbol != rhs_field.symbol) return false;
-            if (!std.meta.eql(lhs_field.binder, rhs_field.binder)) return false;
             if (!std.meta.eql(lhs_field.capture_id, rhs_field.capture_id)) return false;
             if (!try self.publicTypesEquivalent(lhs_field.ty, rhs_field.ty, visited)) return false;
         }
@@ -7337,8 +7333,6 @@ const TypeEquivalence = struct {
         const rhs = self.materialized.captureFieldSpan(materialized);
         if (lhs.len != rhs.len) return false;
         for (lhs, rhs) |a, b| {
-            if (a.symbol != b.symbol) return false;
-            if (!std.meta.eql(a.binder, b.binder)) return false;
             if (!std.meta.eql(a.capture_id, b.capture_id)) return false;
             if (!try self.equivalent(a.ty, b.ty)) return false;
         }

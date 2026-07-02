@@ -300,7 +300,7 @@ const NominalValue = struct {
     backing: *const Value,
 };
 
-/// A cloned capture operand carried on a callable value: its canonical
+/// A cloned capture operand carried on a callable value: its exact
 /// CaptureId plus the cloned supplying value. Keeping the id lets materialization
 /// pair operands to the (possibly specialized) target's sorted capture slots by
 /// id rather than by position.
@@ -1450,9 +1450,9 @@ const Cloner = struct {
                 } };
             },
             .callable => |callable| {
-                // A callable shape's captures are parallel, in canonical
+                // A callable shape's captures are parallel, in ascending
                 // CaptureId order, to its function's sorted capture slots, so we
-                // recover each capture's CaptureId from the matching slot.
+                // read each capture's CaptureId from the matching slot.
                 const slots = self.pass.program.typedLocalSpan(self.pass.program.fns.items[@intFromEnum(callable.fn_id)].captures);
                 if (slots.len != callable.captures.len) {
                     Common.invariant("callable shape capture count differed from its function capture slots");
@@ -1693,13 +1693,6 @@ const Cloner = struct {
             .tuple_access => |access| self.exprCanSubstitute(access.tuple),
             else => false,
         };
-    }
-
-    fn exprSpanCanSubstitute(self: *Cloner, span: Ast.Span(Ast.ExprId)) bool {
-        for (self.pass.program.exprSpan(span)) |expr| {
-            if (!self.exprCanSubstitute(expr)) return false;
-        }
-        return true;
     }
 
     fn captureOperandSpanCanSubstitute(self: *Cloner, span: Ast.Span(Ast.CaptureOperand)) bool {
@@ -2687,7 +2680,7 @@ const Cloner = struct {
         defer self.pass.allocator.free(prepared_captures);
         for (source_captures, 0..) |source_capture, index| {
             const id = self.pass.program.captureIdOfLocal(source_capture.local);
-            const capture_value = self.callableCaptureValueForId(callable.captures, id) orelse
+            const capture_value = callableCaptureValueForId(callable.captures, id) orelse
                 Common.invariant("inlined callable had no value for a capture slot");
             prepared_captures[index] = try self.makeReusableForMatch(capture_value, &pending_lets);
             try self.putSubst(source_capture.local, prepared_captures[index]);
@@ -2784,7 +2777,7 @@ const Cloner = struct {
         defer self.pass.allocator.free(prepared_captures);
         for (captures, 0..) |capture, index| {
             const id = self.pass.program.captureIdOfLocal(capture.local);
-            const capture_value = self.callableCaptureValueForId(capture_values, id) orelse
+            const capture_value = callableCaptureValueForId(capture_values, id) orelse
                 Common.invariant("inlined direct call had no value for a capture slot");
             prepared_captures[index] = try self.valueForInlineLocal(capture.local, capture_value, body, unsafe_count, &pending_lets);
         }
@@ -3109,7 +3102,7 @@ const Cloner = struct {
 
         var all_original = true;
         for (captures) |capture| {
-            const value = self.callableCaptureValueForId(callable.captures, self.pass.program.captureIdOfLocal(capture.local)) orelse {
+            const value = callableCaptureValueForId(callable.captures, self.pass.program.captureIdOfLocal(capture.local)) orelse {
                 all_original = false;
                 break;
             };
@@ -3271,7 +3264,7 @@ const Cloner = struct {
         defer self.pass.allocator.free(operands);
         for (captures, 0..) |capture, index| {
             const id = self.pass.program.captureIdOfLocal(capture.local);
-            const value = self.callableCaptureValueForId(values, id) orelse
+            const value = callableCaptureValueForId(values, id) orelse
                 Common.invariant("specialized callable had no value for a capture slot");
             const value_expr = try self.materialize(value);
             const value_local = localExpr(self.pass.program, value_expr);
@@ -3290,8 +3283,7 @@ const Cloner = struct {
 
     /// Look up the cloned value supplying capture `id` in a callable value's
     /// keyed captures.
-    fn callableCaptureValueForId(self: *Cloner, values: []const CaptureValue, id: check.CheckedModule.CaptureId) ?Value {
-        _ = self;
+    fn callableCaptureValueForId(values: []const CaptureValue, id: check.CheckedModule.CaptureId) ?Value {
         for (values) |capture_value| {
             if (capture_value.id == id) return capture_value.value;
         }

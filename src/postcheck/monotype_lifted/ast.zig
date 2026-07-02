@@ -626,7 +626,7 @@ pub const Program = struct {
             .symbol = symbol,
             .ty = ty,
             .binder = binder,
-            // A binder-backed local carries the canonical capture identity of
+            // A binder-backed local carries the exact capture identity of
             // its binding, so any function that captures it joins by CaptureId.
             .capture_id = if (binder) |b| check.CheckedModule.CaptureId.fromBinder(b) else null,
         });

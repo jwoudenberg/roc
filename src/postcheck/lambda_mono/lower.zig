@@ -492,7 +492,7 @@ const Lowerer = struct {
         if (captures.len != fields.len) Common.invariant("function capture argument arity differed from capture slots");
 
         for (captures, fields) |capture, field| {
-            if (capture.symbol != field.symbol or capture.binder != field.binder or capture.capture_id != field.capture_id) {
+            if (capture.capture_id != field.capture_id) {
                 Common.invariant("function capture argument fields differed from capture slots");
             }
             try self.captures.put(capture.local, .{
@@ -879,11 +879,11 @@ const Lowerer = struct {
         }
 
         // Member captures, capture-record fields, and keyed operands are all in
-        // canonical CaptureId order, so the join is an exact indexed walk.
+        // ascending CaptureId order, so the join is an exact indexed walk.
         const values = try self.allocator.alloc(Ast.ExprId, captures.len);
         defer self.allocator.free(values);
         for (captures, fields, capture_operands, 0..) |capture, field, operand, i| {
-            if (capture.symbol != field.symbol or capture.binder != field.binder or capture.capture_id != field.capture_id) {
+            if (capture.capture_id != field.capture_id) {
                 Common.invariant("callable capture payload fields differed from captured locals");
             }
             const capture_id = capture.capture_id orelse Common.invariant("member capture had no CaptureId");
