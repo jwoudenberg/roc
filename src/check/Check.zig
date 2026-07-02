@@ -7506,9 +7506,7 @@ fn appTypeDeclByIdent(self: *Self, ident: Ident.Idx) ?CIR.Statement.Idx {
 }
 
 fn exposedAppDefByIdent(self: *Self, ident: Ident.Idx) ?CIR.Def.Idx {
-    const wanted = self.cir.getIdent(ident);
-    const app_ident = self.cir.common.findIdent(wanted) orelse return null;
-    const node_idx = self.cir.getExposedValueNodeIndexById(app_ident) orelse return null;
+    const node_idx = self.cir.getExposedValueNodeIndexById(ident) orelse return null;
     if (node_idx >= self.cir.store.nodes.len()) return null;
     const cir_node: CIR.Node.Idx = @enumFromInt(node_idx);
     if (self.cir.store.nodes.get(cir_node).tag != .def) return null;
@@ -7516,10 +7514,9 @@ fn exposedAppDefByIdent(self: *Self, ident: Ident.Idx) ?CIR.Def.Idx {
 }
 
 fn topLevelDefByIdent(self: *Self, ident: Ident.Idx) ?CIR.Def.Idx {
-    const wanted = self.cir.getIdent(ident);
     for (self.cir.store.sliceDefs(self.cir.global_value_defs)) |def_idx| {
         const def_ident = self.getPatternIdent(self.cir.store.getDef(def_idx).pattern) orelse continue;
-        if (Ident.textEql(self.cir.getIdent(def_ident), wanted)) return def_idx;
+        if (def_ident == ident) return def_idx;
     }
     return null;
 }
@@ -7532,7 +7529,6 @@ fn topLevelValueRegionByIdent(self: *Self, ident: Ident.Idx) ?Region {
 }
 
 fn topLevelTagConstructorRegionByIdent(self: *Self, ident: Ident.Idx) ?Region {
-    const wanted = self.cir.getIdent(ident);
     for (0..self.cir.all_statements.span.len) |stmt_offset| {
         const stmt_idx = self.cir.store.statementAt(self.cir.all_statements, stmt_offset);
         const stmt = self.cir.store.getStatement(stmt_idx);
@@ -7541,12 +7537,12 @@ fn topLevelTagConstructorRegionByIdent(self: *Self, ident: Ident.Idx) ?Region {
             .s_nominal_decl => |nominal| nominal.anno,
             else => continue,
         };
-        if (self.typeAnnoTagRegionByIdent(anno_idx, wanted)) |region| return region;
+        if (self.typeAnnoTagRegionByIdent(anno_idx, ident)) |region| return region;
     }
     return null;
 }
 
-fn typeAnnoTagRegionByIdent(self: *Self, anno_idx: CIR.TypeAnno.Idx, wanted: []const u8) ?Region {
+fn typeAnnoTagRegionByIdent(self: *Self, anno_idx: CIR.TypeAnno.Idx, wanted: Ident.Idx) ?Region {
     const anno = self.cir.store.getTypeAnno(anno_idx);
     switch (anno) {
         .tag_union => |tag_union| {
@@ -7557,7 +7553,7 @@ fn typeAnnoTagRegionByIdent(self: *Self, anno_idx: CIR.TypeAnno.Idx, wanted: []c
             return null;
         },
         .tag => |tag| {
-            if (Ident.textEql(self.cir.getIdent(tag.name), wanted)) {
+            if (tag.name == wanted) {
                 return self.cir.store.getTypeAnnoRegion(anno_idx);
             }
             for (self.cir.store.sliceTypeAnnos(tag.args)) |arg_idx| {
