@@ -4922,7 +4922,7 @@ fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8)
     try tmp_dir.dir.createDirPath(std.testing.io, writer.buffered());
 
     const files = [_]struct { rel: []const u8, data: []const u8 }{
-        .{ .rel = "app/main.roc", .data = 
+        .{ .rel = "app/main.roc", .data =
         \\app [main!] { pf: platform "./.roc_echo_platform/main.roc" }
         \\
         \\import pf.Echo
@@ -4932,7 +4932,7 @@ fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8)
         \\    Ok({})
         \\}
         },
-        .{ .rel = "app/.roc_echo_platform/main.roc", .data = 
+        .{ .rel = "app/.roc_echo_platform/main.roc", .data =
         \\platform ""
         \\    requires {} { main! : List(Str) => Try({}, [Exit(I8), ..]) }
         \\    exposes [Echo]
@@ -4953,7 +4953,7 @@ fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8)
         \\        }
         \\    }
         },
-        .{ .rel = "app/.roc_echo_platform/Echo.roc", .data = 
+        .{ .rel = "app/.roc_echo_platform/Echo.roc", .data =
         \\Echo := [].{
         \\    line! : Str => {}
         \\}
