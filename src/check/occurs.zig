@@ -12,11 +12,9 @@
 //! chains. This is reset between runs. The check does not mutate the `Store`.
 
 const std = @import("std");
-const base = @import("base");
 const collections = @import("collections");
 const types = @import("types");
 
-const Ident = base.Ident;
 const MkSafeList = collections.SafeList;
 const Store = types.Store;
 const DescStoreIdx = types.DescStoreIdx;

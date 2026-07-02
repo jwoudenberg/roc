@@ -2119,7 +2119,7 @@ const DeclaringModule = struct {
     env: *ModuleEnv,
     owned_source: []u8,
 
-    fn init(gpa: std.mem.Allocator, module_name: []const u8, source: []const u8) !DeclaringModule {
+    fn init(gpa: std.mem.Allocator, module_name: []const u8, source: []const u8) std.mem.Allocator.Error!DeclaringModule {
         const owned_source = try gpa.dupe(u8, source);
         errdefer gpa.free(owned_source);
         const env = try gpa.create(ModuleEnv);
@@ -2137,7 +2137,7 @@ const DeclaringModule = struct {
     }
 
     /// A nominal type var as its declaring module would produce it.
-    fn mkNominalVar(self: *DeclaringModule, type_name: []const u8, source_decl: u32) !Var {
+    fn mkNominalVar(self: *DeclaringModule, type_name: []const u8, source_decl: u32) std.mem.Allocator.Error!Var {
         const ident = try self.env.insertIdent(Ident.for_text(type_name));
         const backing = try self.env.types.freshFromContent(Content{ .structure = .empty_record });
         const content = try self.env.types.mkNominalWithSourceDecl(
@@ -2152,7 +2152,7 @@ const DeclaringModule = struct {
     }
 };
 
-fn copyIntoConsumer(consumer: *TestEnv, source: *DeclaringModule, var_: Var) !Var {
+fn copyIntoConsumer(consumer: *TestEnv, source: *DeclaringModule, var_: Var) std.mem.Allocator.Error!Var {
     var var_mapping = std.AutoHashMap(Var, Var).init(consumer.module_env.gpa);
     defer var_mapping.deinit();
     return try copy_import.copyVar(

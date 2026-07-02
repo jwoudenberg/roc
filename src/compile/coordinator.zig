@@ -4915,7 +4915,7 @@ fn compileAppRootIdentity(
     };
 }
 
-fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8) !void {
+fn writeCacheKeyPurityFixture(tmp_dir: *std.testing.TmpDir, sub_dir: []const u8) (std.Io.Dir.CreateDirPathError || std.Io.Dir.WriteFileError || std.Io.Writer.Error)!void {
     var path_buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&path_buf);
     try writer.print("{s}/app/.roc_echo_platform", .{sub_dir});
@@ -4998,7 +4998,7 @@ test "cache-key purity: identical workspaces in different directories produce bi
     try std.testing.expect(second.cache_hits > 0);
 }
 
-fn writeHostedDistinctnessFixture(tmp_dir: *std.testing.TmpDir) !void {
+fn writeHostedDistinctnessFixture(tmp_dir: *std.testing.TmpDir) (std.Io.Dir.CreateDirPathError || std.Io.Dir.WriteFileError)!void {
     try tmp_dir.dir.createDirPath(std.testing.io, "app/.roc_hosted_platform");
     try tmp_dir.dir.writeFile(std.testing.io, .{
         .sub_path = "app/main.roc",
