@@ -362,7 +362,7 @@ const Unifier = struct {
     fn runWorkLoop(self: *Self) Error!void {
         while (self.scratch.unify_work_stack.items.pop()) |frame| {
             self.processFrame(frame) catch |err| switch (err) {
-                error.TypeMismatch => try self.handleTypeMismatch(frame),
+                error.TypeMismatch => try self.handleTypeMismatch(),
                 error.OutOfMemory => return error.OutOfMemory,
             };
         }
@@ -409,8 +409,7 @@ const Unifier = struct {
         }
     }
 
-    fn handleTypeMismatch(self: *Self, origin_frame: WorkFrame) Error!void {
-        _ = origin_frame;
+    fn handleTypeMismatch(self: *Self) Error!void {
         while (self.scratch.unify_work_stack.items.pop()) |frame| {
             switch (frame) {
                 .guard_handler => |handler| {
