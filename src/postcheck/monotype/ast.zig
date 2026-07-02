@@ -259,7 +259,11 @@ pub const Local = struct {
     symbol: Common.Symbol,
     ty: Type.TypeId,
     binder: ?checked.PatternBinderId = null,
-    capture_id: ?u32 = null,
+    /// Canonical identity of this local as a closure capture, carried
+    /// immutably through every post-check IR. Non-null for a captured binding
+    /// (canonical, derived from `binder`) and for a compiler-synthesized
+    /// capturable local (generated).
+    capture_id: ?checked.CaptureId = null,
 };
 
 /// Local id paired with its monomorphic type.
@@ -1267,8 +1271,11 @@ pub const ProgramBuilder = struct {
         return id;
     }
 
+    /// Assign a generated capture identity to a synthesized capturable local.
+    /// `capture_id` is the per-owner generated index; it is stored in the
+    /// generated range of `CaptureId`.
     pub fn setLocalCaptureId(self: *ProgramBuilder, id: LocalId, capture_id: u32) void {
-        self.locals.items[@intFromEnum(id)].capture_id = capture_id;
+        self.locals.items[@intFromEnum(id)].capture_id = checked.CaptureId.generated(capture_id);
     }
 
     /// Record the source-level name of a local (dupes; empty means none).

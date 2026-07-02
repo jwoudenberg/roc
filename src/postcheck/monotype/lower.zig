@@ -4725,7 +4725,7 @@ const DraftLocal = struct {
     symbol: Common.Symbol,
     ty: DraftTypeCell,
     binder: ?checked.PatternBinderId = null,
-    capture_id: ?u32 = null,
+    capture_id: ?checked.CaptureId = null,
 };
 
 const DraftTypedLocal = struct {
@@ -5442,7 +5442,7 @@ const BodyDraftStore = struct {
     }
 
     fn setLocalCaptureId(self: *BodyDraftStore, id: DraftLocalId, capture_id: u32) void {
-        self.locals.items[@intFromEnum(id)].capture_id = capture_id;
+        self.locals.items[@intFromEnum(id)].capture_id = checked.CaptureId.generated(capture_id);
     }
 
     fn setLocalType(self: *BodyDraftStore, id: DraftLocalId, ty: DraftTypeCell) void {

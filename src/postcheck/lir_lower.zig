@@ -740,7 +740,7 @@ const Lowerer = struct {
                 .id = if (field.binder) |binder|
                     .{ .binder = binder }
                 else if (field.capture_id) |capture_id|
-                    .{ .generated = capture_id }
+                    .{ .generated = capture_id.generatedIndex() }
                 else
                     .{ .generated = @intFromEnum(field.symbol) },
                 .slot = @intCast(index),

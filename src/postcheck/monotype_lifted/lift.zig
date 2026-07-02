@@ -1012,7 +1012,7 @@ fn captureIdentityForTypedLocal(program: *const Ast.Program, capture: Ast.TypedL
     const origin: CaptureIdentity.Origin = if (local_data.binder) |binder|
         .{ .binder = binder }
     else if (local_data.capture_id) |capture_id|
-        .{ .generated = capture_id }
+        .{ .generated = capture_id.generatedIndex() }
     else
         .{ .local = capture.local };
     return .{ .origin = origin, .ty = capture.ty };
