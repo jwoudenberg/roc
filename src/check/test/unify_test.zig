@@ -61,6 +61,7 @@ const TestEnv = struct {
         const module_env = try gpa.create(ModuleEnv);
         module_env.* = try ModuleEnv.init(gpa, try gpa.dupe(u8, ""));
         try module_env.initCIRFields("Test");
+        try module_env.ensureContentIdentity(&.{});
         return .{
             .module_env = module_env,
             .snapshots = try snapshot_mod.Store.initCapacity(gpa, 16),
@@ -87,7 +88,7 @@ const TestEnv = struct {
         const env = unify_mod.Env{
             .problems_gpa = self.module_env.gpa,
             .ident_store = self.module_env.getIdentStoreConst(),
-            .qualified_module_ident = self.module_env.qualified_module_ident,
+            .self_module_identity = self.module_env.selfModuleIdentity(),
             .types = &self.module_env.types,
             .problems = &self.problems,
             .snapshots = &self.snapshots,
@@ -103,7 +104,7 @@ const TestEnv = struct {
         const env = unify_mod.Env{
             .problems_gpa = self.module_env.gpa,
             .ident_store = self.module_env.getIdentStoreConst(),
-            .qualified_module_ident = self.module_env.qualified_module_ident,
+            .self_module_identity = self.module_env.selfModuleIdentity(),
             .types = &self.module_env.types,
             .problems = &self.problems,
             .snapshots = &self.snapshots,
@@ -153,8 +154,8 @@ const TestEnv = struct {
     // helpers - alias //
 
     fn mkAlias(self: *Self, name: []const u8, backing_var: Var, args: []const Var) std.mem.Allocator.Error!Content {
-        const module_ident_idx = try self.module_env.getIdentStore().insert(self.module_env.gpa, Ident.for_text("MyModule"));
-        return try self.module_env.types.mkAlias(try self.mkTypeIdent(name), backing_var, args, module_ident_idx);
+        const module_identity = try self.module_env.internModuleIdentity(&([_]u8{0x22} ** 32), Ident.Idx.NONE);
+        return try self.module_env.types.mkAlias(try self.mkTypeIdent(name), backing_var, args, module_identity);
     }
 
     // helpers - structure - tuple //
@@ -171,7 +172,7 @@ const TestEnv = struct {
             try self.mkTypeIdent(name),
             backing_var,
             args,
-            self.module_env.qualified_module_ident, // Use qualified module ident for proper canLiftInner check
+            self.module_env.selfModuleIdentity(), // Use this module's identity for proper canLiftInner check
             false, // Use nominal for tests
         );
     }
@@ -181,7 +182,7 @@ const TestEnv = struct {
             try self.mkTypeIdent(name),
             backing_var,
             args,
-            self.module_env.qualified_module_ident, // Use qualified module ident for proper canLiftInner check
+            self.module_env.selfModuleIdentity(), // Use this module's identity for proper canLiftInner check
             true, // Opaque type
         );
     }
@@ -910,9 +911,9 @@ test "unify - distinct concrete builtin numeric nominals never unify" {
     // empty tag union backing and a present source decl (see
     // `mkNumberTypeContent` in src/check/Check.zig). Mirror that shape for
     // U8 and I64 with distinct source decls.
-    const origin_module = try env.module_env.getIdentStore().insert(
-        env.module_env.gpa,
-        Ident.for_text("Builtin"),
+    const origin_module = try env.module_env.internModuleIdentity(
+        &([_]u8{0x33} ** 32),
+        Ident.Idx.NONE,
     );
 
     const u8_backing = try env.module_env.types.freshFromContent(Content{ .structure = .empty_tag_union });
@@ -1048,7 +1049,7 @@ test "partitionFields - same record" {
 
     const result = try unify_mod.partitionFields(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1084,7 +1085,7 @@ test "partitionFields - disjoint fields" {
 
     const result = try unify_mod.partitionFields(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1121,7 +1122,7 @@ test "partitionFields - overlapping fields" {
 
     const result = try unify_mod.partitionFields(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1161,7 +1162,7 @@ test "partitionFields - reordering is normalized" {
 
     const result = try unify_mod.partitionFields(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1328,7 +1329,7 @@ test "partitionTags - same tags" {
 
     const result = try unify_mod.partitionTags(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1364,7 +1365,7 @@ test "partitionTags - disjoint fields" {
 
     const result = try unify_mod.partitionTags(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1401,7 +1402,7 @@ test "partitionTags - overlapping tags" {
 
     const result = try unify_mod.partitionTags(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,
@@ -1441,7 +1442,7 @@ test "partitionTags - reordering is normalized" {
 
     const result = try unify_mod.partitionTags(
         env.module_env.getIdentStoreConst(),
-        env.module_env.qualified_module_ident,
+        env.module_env.selfModuleIdentity(),
         &env.module_env.types,
         &env.scratch,
         &env.occurs_scratch,

@@ -1360,7 +1360,7 @@ const Lowerer = struct {
 
     fn constTypeDef(self: *Lowerer, def: MonoType.TypeDef) std.mem.Allocator.Error!const_store.TypeDef {
         return .{
-            .module_name = try self.result.const_type_names.internModuleName(self.solved.lifted.names.moduleNameText(def.module_name)),
+            .module = try self.result.const_type_names.internModuleIdentity(self.solved.lifted.names.moduleIdentityBytes(def.module)),
             .type_name = try self.result.const_type_names.internTypeName(self.solved.lifted.names.typeNameText(def.type_name)),
             .source_decl = def.source_decl,
         };
@@ -1750,7 +1750,7 @@ const Lowerer = struct {
             .named => |named| named,
             else => Common.invariant("runtime schema request did not reference a named Lambda Mono type"),
         };
-        if (named.def.module_name != request.def.module_name or named.def.type_name != request.def.type_name) {
+        if (named.def.module != request.def.module or named.def.type_name != request.def.type_name) {
             Common.invariant("runtime schema request named type identity changed before LIR lowering");
         }
 
@@ -6610,7 +6610,7 @@ const Lowerer = struct {
     ) Common.LowerError!bool {
         if (lhs.kind != rhs.kind) return false;
         if (!std.mem.eql(u8, lhs.named_type.module.bytes[0..], rhs.named_type.module.bytes[0..])) return false;
-        if (!std.mem.eql(u8, self.solved.lifted.names.moduleNameText(lhs.def.module_name), self.solved.lifted.names.moduleNameText(rhs.def.module_name))) return false;
+        if (!std.mem.eql(u8, self.solved.lifted.names.moduleIdentityBytes(lhs.def.module), self.solved.lifted.names.moduleIdentityBytes(rhs.def.module))) return false;
         if (lhs.def.source_decl != rhs.def.source_decl) return false;
         if (lhs.def.source_decl == null and
             !std.mem.eql(u8, self.solved.lifted.names.typeNameText(lhs.def.type_name), self.solved.lifted.names.typeNameText(rhs.def.type_name)))
