@@ -4364,12 +4364,11 @@ pub fn build(b: *std.Build) void {
     run_check_zig_format_step.dependOn(&check_fmt.step);
 
     // Parser code coverage with kcov
-    // Only supported on Linux ARM64 and macOS (kcov doesn't work on Windows)
-    // TODO ZIG 16: re-check if DWARF bug is fixed — may be able to enable x86_64 coverage
-    // Linux x86_64 is NOT supported due to Zig 0.15.2 generating invalid DWARF .debug_line
-    // sections that cause kcov to fail (see CoverageSummaryStep comments for details)
-    const is_linux_x86_64 = target.result.os.tag == .linux and target.result.cpu.arch == .x86_64;
-    const is_coverage_supported = (target.result.os.tag == .linux or target.result.os.tag == .macos) and !is_linux_x86_64;
+    // Only supported on Linux ARM64, matching CI's coverage runner. Other local
+    // targets still keep the run-coverage-parser step, but it reports unsupported
+    // instead of invoking a kcov binary that cannot trace reliably on that host.
+    const is_linux_arm64 = target.result.os.tag == .linux and target.result.cpu.arch == .aarch64;
+    const is_coverage_supported = is_linux_arm64;
     if (is_coverage_supported and isNativeishOrMusl(target)) {
         // Get the kcov dependency and build it from source
         // lazyDependency returns null on first pass; Zig re-runs build() after fetching
@@ -4562,7 +4561,7 @@ pub fn build(b: *std.Build) void {
                     std.debug.print("=" ** 60 ++ "\n", .{});
                     std.debug.print("COVERAGE NOT SUPPORTED\n", .{});
                     std.debug.print("=" ** 60 ++ "\n\n", .{});
-                    std.debug.print("kcov parser coverage is currently enabled only on Linux ARM64 and macOS targets with supported Zig DWARF.\n", .{});
+                    std.debug.print("kcov parser coverage is currently enabled only on Linux ARM64.\n", .{});
                     std.debug.print("Current platform: {s}\n\n", .{@tagName(builtin.target.os.tag)});
                     std.debug.print("=" ** 60 ++ "\n", .{});
                 }
