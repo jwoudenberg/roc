@@ -1722,12 +1722,7 @@ const Lowerer = struct {
         errdefer self.allocator.free(slots);
         for (fields, 0..) |field, index| {
             slots[index] = .{
-                .id = if (field.binder) |binder|
-                    .{ .binder = binder }
-                else if (field.capture_id) |capture_id|
-                    .{ .generated = capture_id.generatedIndex() }
-                else
-                    .{ .generated = @intFromEnum(field.symbol) },
+                .id = field.capture_id orelse Common.invariant("capture record field had no CaptureId"),
                 .slot = @intCast(index),
                 .ty = try self.constTypeOfType(field.ty),
                 .plan = try self.constPlanOfType(field.ty),

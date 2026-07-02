@@ -3173,10 +3173,7 @@ const Builder = struct {
     ) Allocator.Error!std.ArrayList(RestoredConstSourceCapture) {
         var capture_count: usize = 0;
         for (fn_value.captures) |capture| {
-            switch (capture.id) {
-                .binder => capture_count += 1,
-                .generated => {},
-            }
+            if (capture.id.isCanonical()) capture_count += 1;
         }
 
         var out = std.ArrayList(RestoredConstSourceCapture).empty;
@@ -3184,10 +3181,8 @@ const Builder = struct {
         try out.ensureTotalCapacity(self.allocator, capture_count);
 
         for (fn_value.captures) |capture| {
-            const binder = switch (capture.id) {
-                .binder => |binder| binder,
-                .generated => continue,
-            };
+            if (!capture.id.isCanonical()) continue;
+            const binder = capture.id.binder();
             const lowered_ty = try fn_ctx.lowerTypeView(checkedBinderType(fn_view, binder));
             const local = try fn_ctx.addLocalWithBinder(self.symbols.fresh(), lowered_ty, binder);
             try fn_ctx.bindLocalName(local, binder);
@@ -3206,10 +3201,7 @@ const Builder = struct {
 
         var out_index: usize = 0;
         for (fn_value.captures) |capture| {
-            switch (capture.id) {
-                .binder => {},
-                .generated => continue,
-            }
+            if (!capture.id.isCanonical()) continue;
             out.items[out_index].value = try fn_ctx.restoreConstNodeAtType(store_view, fn_view, capture.value, out.items[out_index].ty);
             out_index += 1;
         }
@@ -23594,18 +23586,14 @@ fn checkedCaptureBinder(view: ModuleView, pattern: checked.CheckedPatternId) che
 }
 
 fn constCaptureBinder(id: check.ConstStore.CaptureId) checked.PatternBinderId {
-    return switch (id) {
-        .binder => |binder| binder,
-        .generated => Common.invariant("generated capture reached source lambda restore"),
-    };
+    if (!id.isCanonical()) Common.invariant("generated capture reached source lambda restore");
+    return id.binder();
 }
 
 fn constGeneratedCaptureNode(fn_value: check.ConstStore.ConstFn, capture_id: u32) ?checked.ConstNodeId {
+    const needle = checked.CaptureId.generatedCheck(capture_id);
     for (fn_value.captures) |capture| {
-        switch (capture.id) {
-            .generated => |actual| if (actual == capture_id) return capture.value,
-            .binder => {},
-        }
+        if (capture.id == needle) return capture.value;
     }
     return null;
 }
