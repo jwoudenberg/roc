@@ -14791,40 +14791,6 @@ fn platformRequirementTypesCompatible(
     return try checker.compatible(scratch_expected, scratch_actual);
 }
 
-fn findRecordFieldAcrossArtifacts(
-    actual_artifact: *const CheckedModuleArtifact,
-    fields: []const CheckedRecordField,
-    expected_artifact: *const CheckedModuleArtifact,
-    expected_name: canonical.RecordFieldLabelId,
-) ?CheckedRecordField {
-    for (fields) |field| {
-        if (recordFieldLabelsMatch(
-            &actual_artifact.canonical_names,
-            field.name,
-            &expected_artifact.canonical_names,
-            expected_name,
-        )) return field;
-    }
-    return null;
-}
-
-fn findTagAcrossArtifacts(
-    actual_artifact: *const CheckedModuleArtifact,
-    tags: []const CheckedTag,
-    expected_artifact: *const CheckedModuleArtifact,
-    expected_name: canonical.TagLabelId,
-) ?CheckedTag {
-    for (tags) |tag| {
-        if (tagLabelsMatch(
-            &actual_artifact.canonical_names,
-            tag.name,
-            &expected_artifact.canonical_names,
-            expected_name,
-        )) return tag;
-    }
-    return null;
-}
-
 const PlatformRequirementTypePair = struct {
     expected: u32,
     actual: u32,

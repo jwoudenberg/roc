@@ -3728,7 +3728,7 @@ fn runRocInCaseEnv(
 }
 
 fn platformRequiresDiagnosticBody(stderr: []const u8) []const u8 {
-    const without_summary = if (std.mem.lastIndexOf(u8, stderr, "\n\nFound ")) |summary_idx|
+    const without_summary = if (std.mem.findLast(u8, stderr, "\n\nFound ")) |summary_idx|
         stderr[0..summary_idx]
     else
         stderr;

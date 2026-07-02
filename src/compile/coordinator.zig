@@ -77,11 +77,9 @@ const ParseTask = messages.ParseTask;
 const CanonicalizeTask = messages.CanonicalizeTask;
 const CanonicalizeImport = messages.CanonicalizeImport;
 const TypeCheckTask = messages.TypeCheckTask;
-const PlatformRequirementsCheckTask = messages.PlatformRequirementsCheckTask;
 const PlatformRequirementSurface = messages.PlatformRequirementSurface;
 const ParsedResult = messages.ParsedResult;
 const CanonicalizedResult = messages.CanonicalizedResult;
-const PlatformRequirementsCheckedResult = messages.PlatformRequirementsCheckedResult;
 
 const WorkerFailureError = Allocator.Error || error{ AccessDenied, FileNotFound, IoError, StreamTooLong } || compile_package.TypeCheckModuleError;
 const TypeCheckWorkerError = Allocator.Error || compile_package.TypeCheckModuleError;
