@@ -3629,6 +3629,11 @@ pub const Coordinator = struct {
         const task_payload_alloc = self.getWorkerAllocator();
         const imported_envs = try self.buildTypecheckImportedEnvs(pkg, mod, task_payload_alloc);
         errdefer task_payload_alloc.free(imported_envs);
+
+        // All direct imports are Done, so their deep content identities are
+        // final; compute this module's identity before the cache-key probe and
+        // before type-checking (the unifier consumes precomputed identities).
+        try mod.moduleEnv().?.ensureContentIdentity(imported_envs);
         const imported_artifacts = try self.buildTypecheckImportedArtifacts(pkg, mod, task_payload_alloc);
         errdefer task_payload_alloc.free(imported_artifacts);
         // Requirement unification copies platform-owned types into the app's

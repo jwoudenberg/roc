@@ -1128,6 +1128,14 @@ fn initAssumePrepared(
     regions: *const Region.List,
     builtin_ctx: BuiltinContext,
 ) std.mem.Allocator.Error!Self {
+    // Finalize this module's deep content identity before any unification: the
+    // unifier only ever compares precomputed identities. Idempotent — the
+    // coordinator already finalized coordinator-driven modules (it needs the
+    // identity for the checked-cache key probe); this covers every other
+    // checking entry point (tests, snapshot tool, playground, builtin bake)
+    // with the same inputs: the resolved direct imports.
+    try cir.ensureContentIdentity(imported_modules);
+
     var owner_module_envs = try buildOwnerModuleEnvMap(gpa, imported_modules, owner_modules);
     errdefer owner_module_envs.deinit();
 

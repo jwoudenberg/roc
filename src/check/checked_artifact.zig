@@ -242,13 +242,20 @@ fn hashModuleIdentity(identity: ModuleIdentity) [32]u8 {
     return identity.stable_hash;
 }
 
+/// A module's identity hash IS its deep content identity: a pure function of
+/// the transitive closure's module names and source bytes (see
+/// `base.module_identity`). No coordinator-assigned display strings, package
+/// names, or paths participate — cache keys and serialized identities are
+/// bit-identical no matter which pipeline built the artifact or what
+/// directory the build ran in.
 fn computeStableModuleIdentityHash(module_env: *const ModuleEnv) [32]u8 {
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    hashByteSlice(&hasher, module_env.module_name);
-    hashByteSlice(&hasher, module_env.getIdentText(module_env.display_module_name_idx));
-    hashByteSlice(&hasher, module_env.getIdentText(module_env.qualified_module_ident));
-    hasher.update(@tagName(module_env.module_kind));
-    return hasher.finalResult();
+    const hash = module_env.contentIdentityHash() orelse {
+        std.debug.panic(
+            "checked artifact identity requested before module content identity was finalized for module '{s}'",
+            .{module_env.module_name},
+        );
+    };
+    return hash.*;
 }
 
 fn hashCheckingContextIdentity(identity: CheckingContextIdentity) [32]u8 {
