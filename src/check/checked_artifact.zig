@@ -1385,6 +1385,8 @@ fn checkedTypeIsConcreteCompileTimeRootInner(
                     .primitive,
                     .list,
                     .box,
+                    .dict,
+                    .set,
                     .parse_tag_union_spec,
                     .fields,
                     .field,
@@ -2253,6 +2255,8 @@ pub const CheckedBuiltinNominal = enum {
     dec,
     list,
     box,
+    dict,
+    set,
     parse_tag_union_spec,
     fields,
     field,
@@ -2287,6 +2291,8 @@ pub const CheckedBuiltinRuntimeEncoding = union(enum) {
     bool_tag_union,
     list,
     box,
+    dict,
+    set,
     parse_tag_union_spec,
     fields,
     field,
@@ -2316,6 +2322,8 @@ pub fn builtinRuntimeEncoding(builtin_nominal: CheckedBuiltinNominal) CheckedBui
         .dec => .{ .primitive = .dec },
         .list => .list,
         .box => .box,
+        .dict => .dict,
+        .set => .set,
         .parse_tag_union_spec => .parse_tag_union_spec,
         .fields => .fields,
         .field => .field,
@@ -6264,9 +6272,11 @@ fn checkedBuiltinNominalForIdent(module_env: *const ModuleEnv, ident: base.Ident
     if (ident.eql(common.dec) or ident.eql(common.dec_type)) return .dec;
     if (ident.eql(common.list) or ident.eql(common.builtin_list)) return .list;
     if (ident.eql(common.box) or ident.eql(common.builtin_box)) return .box;
-    if (ident.eql(common.builtin_parse_tag_union_spec)) return .parse_tag_union_spec;
-    if (ident.eql(common.builtin_str_field_names)) return .fields;
-    if (ident.eql(common.builtin_str_field_name)) return .field;
+    if (ident.eql(common.dict) or ident.eql(common.builtin_dict)) return .dict;
+    if (ident.eql(common.set) or ident.eql(common.builtin_set)) return .set;
+    if (ident.eql(common.builtin_encoding_parse_tag_union_spec)) return .parse_tag_union_spec;
+    if (ident.eql(common.builtin_encoding_field_names)) return .fields;
+    if (ident.eql(common.builtin_encoding_field_name)) return .field;
     if (ident.eql(common.builtin_crypto_sha256_digest)) return .crypto_sha256_digest;
     if (ident.eql(common.builtin_crypto_sha256_hasher)) return .crypto_sha256_hasher;
     if (ident.eql(common.builtin_crypto_blake3_digest)) return .crypto_blake3_digest;
@@ -10833,6 +10843,8 @@ fn builtinNominalAcceptsNumeralLiteral(builtin_nominal: CheckedBuiltinNominal) b
         .str,
         .list,
         .box,
+        .dict,
+        .set,
         .parse_tag_union_spec,
         .fields,
         .field,
@@ -18406,6 +18418,15 @@ fn checkedTypeHasNoReachableCallableSlotsInner(
                     => {
                         if (nominal.args.len != 1) checkedArtifactInvariant("builtin container nominal had non-unary args", .{});
                         break :blk try checkedTypeHasNoReachableCallableSlotsInner(checked_types, nominal.args[0], active);
+                    },
+                    .set => {
+                        if (nominal.args.len != 1) checkedArtifactInvariant("builtin Set nominal had non-unary args", .{});
+                        break :blk try checkedTypeHasNoReachableCallableSlotsInner(checked_types, nominal.args[0], active);
+                    },
+                    .dict => {
+                        if (nominal.args.len != 2) checkedArtifactInvariant("builtin Dict nominal had non-binary args", .{});
+                        if (!try checkedTypeHasNoReachableCallableSlotsInner(checked_types, nominal.args[0], active)) break :blk false;
+                        break :blk try checkedTypeHasNoReachableCallableSlotsInner(checked_types, nominal.args[1], active);
                     },
                 }
             }
@@ -26964,8 +26985,8 @@ test "SERIALIZED_VERSION_HASH golden value" {
     // change, bump `serialized_layout_version` and replace the golden bytes below with
     // the ones this assertion prints.
     const golden: [32]u8 = .{
-        0x1F, 0xE4, 0x0C, 0xEE, 0x8D, 0x28, 0x13, 0x8A, 0x03, 0xCB, 0x3B, 0x95, 0x49, 0xB4, 0xDF, 0x2D,
-        0x09, 0x41, 0x44, 0x24, 0x68, 0x03, 0x7F, 0x4F, 0xAB, 0x29, 0xB3, 0xE2, 0x63, 0x20, 0x78, 0xD6,
+        0x3E, 0xCB, 0x26, 0x9E, 0x4A, 0x32, 0x5C, 0x1F, 0x6A, 0x74, 0x52, 0x24, 0x5C, 0x94, 0x08, 0xE9,
+        0xEF, 0xDC, 0xE8, 0xA6, 0x5E, 0xCC, 0x6B, 0x06, 0x91, 0xFF, 0x23, 0x3F, 0x1C, 0xE7, 0x99, 0x08,
     };
     try std.testing.expectEqualSlices(u8, &golden, &CheckedModuleArtifact.SERIALIZED_VERSION_HASH);
 }
