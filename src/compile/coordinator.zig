@@ -3719,7 +3719,7 @@ pub const Coordinator = struct {
         mod.phase = .Done;
         mod.visit_color = .black;
 
-        self.installPlatformRequirementSurface(mod);
+        installPlatformRequirementSurface(mod);
 
         // Update compile stats
         self.cache_misses += 1;
