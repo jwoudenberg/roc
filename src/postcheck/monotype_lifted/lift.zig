@@ -1502,6 +1502,72 @@ test "monotype lifting preserves imported direct call slots" {
     }
 }
 
+test "checkCaptureInvariants accepts a well-formed capture and catches a corrupted operand" {
+    const allocator = std.testing.allocator;
+    var program = Ast.Program.init(
+        allocator,
+        @import("check").CheckedNames.NameStore.init(allocator),
+        MonoType.Store.init(allocator),
+        .empty, // imported_fns
+        .empty, // exprs
+        .empty, // pats
+        .empty, // stmts
+        .empty, // locals
+        .empty, // expr_ids
+        .empty, // pat_ids
+        .empty, // typed_locals
+        .empty, // stmt_ids
+        .empty, // field_exprs
+        .empty, // fn_def_captures
+        .empty, // record_destructs
+        .empty, // str_pattern_steps
+        .empty, // branches
+        .empty, // if_branches
+        .empty, // string_literals
+        Ast.ProcDebugNameMap.init(allocator),
+        .empty, // source_files
+        .empty, // expr_locs
+        .empty, // expr_regions
+        .empty, // stmt_locs
+        .empty, // stmt_regions
+        .empty, // local_names
+        .empty, // comptime_sites
+        0, // next_symbol
+    );
+    defer program.deinit();
+
+    // One capturing function: a single binder-backed capture slot, and a
+    // function reference that supplies it with a keyed operand.
+    const ty = try program.types.add(.zst);
+    const binder: checked.PatternBinderId = @enumFromInt(0);
+    const cap_local = try program.addLocalWithBinder(@enumFromInt(0), ty, binder);
+    const cap_span = try program.addTypedLocalSpan(&.{.{ .local = cap_local, .ty = ty }});
+    try program.fns.append(allocator, .{
+        .symbol = @enumFromInt(0),
+        .args = Ast.Span(Ast.TypedLocal).empty(),
+        .captures = cap_span,
+        .body = .hosted,
+        .ret = ty,
+    });
+    const value = try program.addExpr(.{ .ty = ty, .data = .{ .local = cap_local } });
+    const op_span = try program.addCaptureOperandSpan(&.{.{ .id = checked.CaptureId.fromBinder(binder), .value = value }});
+    _ = try program.addExpr(.{ .ty = ty, .data = .{ .fn_ref = .{
+        .fn_id = @as(Ast.FnId, @enumFromInt(0)),
+        .captures = op_span,
+    } } });
+
+    // A well-formed capture representation reports no violation.
+    try std.testing.expectEqual(@as(?[]const u8, null), try checkCaptureInvariants(&program));
+
+    // Intentionally skip capture maintenance: give the operand a CaptureId that
+    // no longer matches its slot. The debug pass must catch it deterministically.
+    program.capture_operands.items[0].id = checked.CaptureId.fromBinder(@enumFromInt(1));
+    try std.testing.expectEqualStrings(
+        "operand CaptureId did not match its slot",
+        (try checkCaptureInvariants(&program)).?,
+    );
+}
+
 test "monotype lifted lower declarations are referenced" {
     std.testing.refAllDecls(@This());
 }
