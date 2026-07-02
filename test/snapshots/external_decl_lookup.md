@@ -17,30 +17,30 @@ main! = |_| {
 }
 ~~~
 # EXPECTED
-UNDEFINED VARIABLE - external_decl_lookup.md:8:14:8:23
-UNDEFINED VARIABLE - external_decl_lookup.md:9:5:9:17
+NAME NOT IN SCOPE - external_decl_lookup.md:8:14:8:23
+NAME NOT IN SCOPE - external_decl_lookup.md:9:5:9:17
 # PROBLEMS
 
-┌────────────────────┐
-│ UNDEFINED VARIABLE ├─ Nothing is named `utf8` in this scope. ───────────────┐
-└┬───────────────────┘                                                        │
+┌───────────────────┐
+│ NAME NOT IN SCOPE ├─ Nothing is named `utf8` in this scope. ────────────────┐
+└┬──────────────────┘                                                         │
  │                                                                            │
  │  result = Json.utf8("Hello from external module!")                         │
  │           ‾‾‾‾‾‾‾‾‾                                                        │
  └────────────────────────────────────────────── external_decl_lookup.md:8:14 ┘
 
-    Is there an `import` or `exposing` missing up-top?
+    Is it misspelled, or is there an import missing?
 
 
-┌────────────────────┐
-│ UNDEFINED VARIABLE ├─ Nothing is named `line!` in this scope. ──────────────┐
-└┬───────────────────┘                                                        │
+┌───────────────────┐
+│ NAME NOT IN SCOPE ├─ Nothing is named `line!` in this scope. ───────────────┐
+└┬──────────────────┘                                                         │
  │                                                                            │
  │  Stdout.line!(result)                                                      │
  │  ‾‾‾‾‾‾‾‾‾‾‾‾                                                              │
  └─────────────────────────────────────────────── external_decl_lookup.md:9:5 ┘
 
-    Is there an `import` or `exposing` missing up-top?
+    Is it misspelled, or is there an import missing?
 
 # TOKENS
 ~~~zig
