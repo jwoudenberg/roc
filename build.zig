@@ -2580,6 +2580,10 @@ pub fn build(b: *std.Build) void {
 
     const run_minici = b.addRunArtifact(minici_exe);
     run_minici.addArg(b.graph.zig_exe);
+    for (b.search_prefixes.items) |search_prefix| {
+        run_minici.addArg("--search-prefix");
+        run_minici.addArg(search_prefix);
+    }
     run_minici.step.dependOn(&install_minici.step);
     run_minici_step.dependOn(&run_minici.step);
 
