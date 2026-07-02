@@ -1090,8 +1090,8 @@ fn markReachableLiftedExpr(
         .uninitialized_payload,
         => {},
         .fn_ref => |fn_ref| {
-            for (program.exprSpan(fn_ref.captures)) |capture| {
-                markReachableLiftedExpr(program, capture, reachable);
+            for (program.captureOperandSpan(fn_ref.captures)) |operand| {
+                markReachableLiftedExpr(program, operand.value, reachable);
             }
         },
         .list,
@@ -1133,7 +1133,7 @@ fn markReachableLiftedExpr(
         },
         .call_proc => |call| {
             for (program.exprSpan(call.args)) |arg| markReachableLiftedExpr(program, arg, reachable);
-            for (program.exprSpan(call.captures)) |capture| markReachableLiftedExpr(program, capture, reachable);
+            for (program.captureOperandSpan(call.captures)) |operand| markReachableLiftedExpr(program, operand.value, reachable);
         },
         .low_level => |call| for (program.exprSpan(call.args)) |arg| markReachableLiftedExpr(program, arg, reachable),
         .field_access => |field| markReachableLiftedExpr(program, field.receiver, reachable),
