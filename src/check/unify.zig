@@ -2423,6 +2423,32 @@ pub const DeferredConstraintCheck = struct {
     pub const SafeList = MkSafeList(@This());
 };
 
+const MismatchHandling = union(enum) {
+    abort,
+    ignore,
+    set_flag: u32,
+};
+
+const WorkFrame = union(enum) {
+    guarded_pair: struct {
+        a: Var,
+        b: Var,
+        on_mismatch: MismatchHandling,
+    },
+    guard_handler: struct {
+        visited_vars_len: u32,
+        saved_unresolved_b: ?Var,
+        on_mismatch: MismatchHandling,
+    },
+    unify_vars: ResolvedVarDescs,
+    merge: struct {
+        vars: ResolvedVarDescs,
+        content: Content,
+    },
+
+    pub const SafeList = MkSafeList(@This());
+};
+
 /// Public helper functions for tests
 pub fn partitionFields(
     ident_store: *const Ident.Store,
@@ -2495,6 +2521,10 @@ pub const Scratch = struct {
     // used by caller of unify
     fresh_vars: VarSafeList,
 
+    // explicit unification work stack
+    unify_work_stack: WorkFrame.SafeList,
+    mismatch_flags: MkSafeList(bool),
+
     // records - used internal by unification
     gathered_fields: RecordFieldSafeList,
     only_in_a_fields: RecordFieldSafeList,
@@ -2532,6 +2562,8 @@ pub const Scratch = struct {
         return .{
             .gpa = gpa,
             .fresh_vars = try VarSafeList.initCapacity(gpa, 8),
+            .unify_work_stack = try WorkFrame.SafeList.initCapacity(gpa, 32),
+            .mismatch_flags = try MkSafeList(bool).initCapacity(gpa, 8),
             .gathered_fields = try RecordFieldSafeList.initCapacity(gpa, 32),
             .only_in_a_fields = try RecordFieldSafeList.initCapacity(gpa, 32),
             .only_in_b_fields = try RecordFieldSafeList.initCapacity(gpa, 32),
@@ -2553,6 +2585,8 @@ pub const Scratch = struct {
     /// Deinit scratch
     pub fn deinit(self: *Self) void {
         self.fresh_vars.deinit(self.gpa);
+        self.unify_work_stack.deinit(self.gpa);
+        self.mismatch_flags.deinit(self.gpa);
         self.gathered_fields.deinit(self.gpa);
         self.only_in_a_fields.deinit(self.gpa);
         self.only_in_b_fields.deinit(self.gpa);
@@ -2572,6 +2606,8 @@ pub const Scratch = struct {
 
     /// Reset the scratch arrays, retaining the allocated memory
     pub fn reset(self: *Scratch) void {
+        self.unify_work_stack.items.clearRetainingCapacity();
+        self.mismatch_flags.items.clearRetainingCapacity();
         self.gathered_fields.items.clearRetainingCapacity();
         self.only_in_a_fields.items.clearRetainingCapacity();
         self.only_in_b_fields.items.clearRetainingCapacity();
