@@ -330,6 +330,96 @@ const Unifier = struct {
         TypeMismatch,
     };
 
+    fn scheduleGuardedPair(self: *Self, a_var: Var, b_var: Var, on_mismatch: MismatchHandling) std.mem.Allocator.Error!void {
+        _ = try self.scratch.unify_work_stack.append(self.scratch.gpa, .{ .guarded_pair = .{
+            .a = a_var,
+            .b = b_var,
+            .on_mismatch = on_mismatch,
+        } });
+    }
+
+    fn scheduleMerge(self: *Self, vars: ResolvedVarDescs, content: Content) std.mem.Allocator.Error!void {
+        _ = try self.scratch.unify_work_stack.append(self.scratch.gpa, .{ .merge = .{
+            .vars = vars,
+            .content = content,
+        } });
+    }
+
+    fn runWorkLoop(self: *Self) Error!void {
+        while (self.scratch.unify_work_stack.items.pop()) |frame| {
+            self.processFrame(frame) catch |err| switch (err) {
+                error.TypeMismatch => try self.handleTypeMismatch(frame),
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+        }
+    }
+
+    fn processFrame(self: *Self, frame: WorkFrame) Error!void {
+        switch (frame) {
+            .guarded_pair => |pair| try self.processGuardedPair(pair.a, pair.b, pair.on_mismatch),
+            .guard_handler => |handler| {
+                self.scratch.visited_vars.items.items.len = handler.visited_vars_len;
+                self.unresolved_b = handler.saved_unresolved_b;
+            },
+            .unify_vars => |vars| try self.unifyVars(&vars),
+            .merge => |merge_frame| try self.merge(&merge_frame.vars, merge_frame.content),
+        }
+    }
+
+    fn processGuardedPair(self: *Self, a_var: Var, b_var: Var, on_mismatch: MismatchHandling) Error!void {
+        switch (self.types_store.checkVarsEquiv(a_var, b_var)) {
+            .equiv => return,
+            .not_equiv => |vars| {
+                if (self.isPairVisited(a_var, b_var)) {
+                    return;
+                }
+
+                const visited_vars_len: u32 = @intCast(self.scratch.visited_vars.items.items.len);
+                _ = try self.scratch.visited_vars.append(self.scratch.gpa, a_var);
+                _ = try self.scratch.visited_vars.append(self.scratch.gpa, b_var);
+
+                const saved_unresolved_b = self.unresolved_b;
+                self.unresolved_b = b_var;
+
+                _ = try self.scratch.unify_work_stack.append(self.scratch.gpa, .{ .guard_handler = .{
+                    .visited_vars_len = visited_vars_len,
+                    .saved_unresolved_b = saved_unresolved_b,
+                    .on_mismatch = on_mismatch,
+                } });
+                _ = try self.scratch.unify_work_stack.append(self.scratch.gpa, .{ .unify_vars = vars });
+            },
+        }
+    }
+
+    fn handleTypeMismatch(self: *Self, origin_frame: WorkFrame) Error!void {
+        if (origin_frame == .guarded_pair) {
+            return try self.applyMismatchHandling(origin_frame.guarded_pair.on_mismatch);
+        }
+
+        while (self.scratch.unify_work_stack.items.pop()) |frame| {
+            switch (frame) {
+                .guard_handler => |handler| {
+                    self.scratch.visited_vars.items.items.len = handler.visited_vars_len;
+                    self.unresolved_b = handler.saved_unresolved_b;
+                    return try self.applyMismatchHandling(handler.on_mismatch);
+                },
+                else => {},
+            }
+        }
+
+        return error.TypeMismatch;
+    }
+
+    fn applyMismatchHandling(self: *Self, handling: MismatchHandling) Error!void {
+        switch (handling) {
+            .abort => return error.TypeMismatch,
+            .ignore => return,
+            .set_flag => |flag_idx| {
+                self.scratch.mismatch_flags.items.items[flag_idx] = true;
+            },
+        }
+    }
+
     const NominalDirection = enum {
         a_is_nominal,
         b_is_nominal,
