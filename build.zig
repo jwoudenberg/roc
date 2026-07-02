@@ -3166,7 +3166,11 @@ pub fn build(b: *std.Build) void {
         run_snapshot_tool_step,
         run_args,
     );
-    const check_snapshot_diff = b.addSystemCommand(&.{ "git", "diff", "--exit-code", "test/snapshots" });
+    const check_snapshot_diff = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git diff --exit-code test/snapshots; elif test -d .jj; then test -z \"$(jj diff --summary test/snapshots)\"; else echo 'run-check-snapshots requires a Git or JJ workspace' >&2; exit 1; fi",
+    });
     check_snapshot_diff.step.dependOn(run_snapshot_tool_step);
     run_check_snapshots_step.dependOn(&check_snapshot_diff.step);
 
