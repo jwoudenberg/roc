@@ -2087,7 +2087,7 @@ fn invalidateHoistedExprSubtree(self: *Self, root: CIR.Expr.Idx) Allocator.Error
     var work: std.ArrayListUnmanaged(CIR.Expr.Idx) = .empty;
     defer work.deinit(self.gpa);
 
-    try self.markHoistInvalidatedExpr(root, &work);
+    try self.markHoistInvalidatedExprChildren(root, &work);
     var next: usize = 0;
     while (next < work.items.len) : (next += 1) {
         try self.markHoistInvalidatedExprChildren(work.items[next], &work);
@@ -5178,6 +5178,7 @@ fn hoistedRootIsIntrinsicallyKept(
         ModuleEnv.varFrom(pattern)
     else
         ModuleEnv.varFrom(root.expr);
+    if (self.cir.store.getExpr(root.expr) == .e_runtime_error) return true;
     if (isFunctionDef(&self.cir.store, self.cir.store.getExpr(root.expr))) return false;
     if (self.varIsFunctionType(type_var)) return false;
     return try self.varIsConcreteHoistedConstType(type_var);
@@ -5444,9 +5445,9 @@ fn hoistedRootDependenciesAreKeptInternal(
         .e_empty_list,
         .e_empty_record,
         .e_zero_argument_tag,
+        .e_runtime_error,
         => true,
         .e_lookup_required,
-        .e_runtime_error,
         .e_ellipsis,
         .e_anno_only,
         .e_crash,
