@@ -738,10 +738,10 @@ const Builder = struct {
         self.hosted_catalog = try entries.toOwnedSlice(self.allocator);
     }
 
-    /// Find the executable platform contract's hosted section and resolve it to
-    /// qualified keys + linker symbols. Imported availability artifacts can
-    /// carry platform metadata during app checking, but they do not define the
-    /// hosted dispatch order for that app-publication lowering pass.
+    /// Use the first non-empty ModuleEnv.hosted_entries from the root
+    /// CheckedModule or its relation CheckedModules to populate HostedSectionMap
+    /// keys and linker symbols. That checked-module data supplies the
+    /// dispatch_index ordering for root-app monotype lowering.
     fn buildHostedSectionMap(self: *Builder) Allocator.Error!?HostedSectionMap {
         const platform_env = blk: {
             const root_env = moduleView(self.root_view).module_env;

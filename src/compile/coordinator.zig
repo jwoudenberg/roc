@@ -2051,6 +2051,36 @@ pub const Coordinator = struct {
         return false;
     }
 
+    fn appendTypeOwnerAvailableArtifactClosure(
+        self: *Coordinator,
+        views: *std.ArrayList(check.CheckedArtifact.ImportedModuleView),
+        allocator: Allocator,
+        seed: *const check.CheckedArtifact.CheckedModuleArtifact,
+    ) Allocator.Error!void {
+        var pending = std.ArrayList(*const check.CheckedArtifact.CheckedModuleArtifact).empty;
+        defer pending.deinit(allocator);
+        var seen = std.AutoHashMap(check.CheckedArtifact.CheckedModuleArtifactKey, void).init(allocator);
+        defer seen.deinit();
+
+        try pending.append(allocator, seed);
+        while (pending.pop()) |artifact| {
+            const entry = try seen.getOrPut(artifact.key);
+            if (entry.found_existing) continue;
+            entry.value_ptr.* = {};
+
+            if (!importedArtifactViewExists(views.items, artifact.key)) {
+                try views.append(allocator, check.CheckedArtifact.importedView(artifact));
+            }
+
+            for (artifact.public_api_dependencies.type_owner_artifacts) |dependency_key| {
+                const dependency = self.checkedArtifactByKey(dependency_key) orelse {
+                    coordinatorInvariant("compile.coordinator missing type-owner dependency checked artifact", .{});
+                };
+                try pending.append(allocator, dependency);
+            }
+        }
+    }
+
     /// Finalize the build's executable artifacts (link app + platform, build
     /// the platform-app relation, republish the root artifact).
     ///
@@ -2352,8 +2382,10 @@ pub const Coordinator = struct {
             const root_key = if (mod.checkedArtifact()) |current| current.key else CheckedArtifact.CheckedModuleArtifactKey{};
             for (publication.relation_artifacts) |relation_artifact| {
                 if (checkedArtifactKeyEql(relation_artifact.key, root_key)) continue;
-                if (importedArtifactViewExists(extended_available.items, relation_artifact.key)) continue;
-                try extended_available.append(self.gpa, relation_artifact);
+                const relation_checked_artifact = self.checkedArtifactByKey(relation_artifact.key) orelse {
+                    coordinatorInvariant("platform/app relation publication references unavailable checked module", .{});
+                };
+                try self.appendTypeOwnerAvailableArtifactClosure(&extended_available, self.gpa, relation_checked_artifact);
             }
 
             var dependency_collector = RelationLoweringDependencyCollector.init(
@@ -3546,17 +3578,14 @@ pub const Coordinator = struct {
         var available_artifacts = try self.collectTypecheckAvailableArtifactViews(task_payload_alloc, imported_artifacts);
         errdefer task_payload_alloc.free(available_artifacts);
         if (platform_surface != null) {
-            // Requirement unification copies platform-owned types into the
-            // app's store, so the app's published API can depend on the
-            // platform root's artifact; make it available to publication's
-            // public-API dependency scan.
             if (self.platformRootCandidate()) |platform_root| {
                 if (platform_root.mod.checkedArtifact()) |platform_artifact| {
-                    const with_platform = try task_payload_alloc.alloc(check.CheckedArtifact.ImportedModuleView, available_artifacts.len + 1);
-                    @memcpy(with_platform[0..available_artifacts.len], available_artifacts);
-                    with_platform[available_artifacts.len] = check.CheckedArtifact.importedView(platform_artifact);
+                    var with_platform = std.ArrayList(check.CheckedArtifact.ImportedModuleView).empty;
+                    errdefer with_platform.deinit(task_payload_alloc);
+                    try with_platform.appendSlice(task_payload_alloc, available_artifacts);
+                    try self.appendTypeOwnerAvailableArtifactClosure(&with_platform, task_payload_alloc, platform_artifact);
                     task_payload_alloc.free(available_artifacts);
-                    available_artifacts = with_platform;
+                    available_artifacts = try with_platform.toOwnedSlice(task_payload_alloc);
                 }
             }
         }
