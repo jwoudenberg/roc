@@ -219,5 +219,5 @@ because it adds data instead of mutating shared state.
   — the coercion node is a new producer/consumer pair (checker emits,
   lowerer consumes) and should ship with a parity test in that suite's
   pattern.
-- [../small/check-app-against-platform-requires.md](../small/check-app-against-platform-requires.md)
+- [../small/finish-platform-requires-check-time-migration.md](../small/finish-platform-requires-check-time-migration.md)
   — adjacent checker-side work on annotation boundaries.

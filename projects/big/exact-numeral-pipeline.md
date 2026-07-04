@@ -122,9 +122,9 @@ checking; decide the default in one module; produce bits exactly once.
 3. **Range/fit validation from exact facts**: one function `fits(exact,
    target_type) -> bool` computed on limbs (digit-count prefilter + u128
    checked arithmetic, per 9760). It runs whenever the concrete type
-   becomes known — entirely within the checker once
-   ../small/check-app-against-platform-requires.md lands, which removes the
-   second drop site where platform-implied types arrive after checking.
+   becomes known — entirely within the checker once the remaining
+   platform-requirement publication rewrite is gone, so platform-implied
+   types cannot be adjusted after checking.
    DELETE `numeralInfoFitsDec`, `numeralLiteralFitsDec`, and the
    text-reconstruction validation path; `rangeNumeralDigitsFit` becomes a
    call into the shared function.
@@ -198,8 +198,9 @@ panics for representability are deleted, not relocated.
 
 ## Related projects
 
-- [Check app against platform requires](../small/check-app-against-platform-requires.md)
-  — removes the post-checking type-arrival path this design depends on.
+- [Finish platform requires check-time migration](../small/finish-platform-requires-check-time-migration.md)
+  — removes the remaining platform-requirement publication rewrite that can
+  obscure literal range facts after checking.
 - [Total dispatch plans](../big/total-dispatch-plans.md) — defines the
   single type-finalization point the defaulting oracle plugs into.
 - [Checked arithmetic ops in LIR](../small/checked-arithmetic-lir-ops.md)

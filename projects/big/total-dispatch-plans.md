@@ -147,9 +147,9 @@ and generated code is unchanged.
 
 4. **Evidence through nested closures.** A where-clause evidence index used
    inside a nested closure behaves exactly like a compile-time capture: it is
-   introduced by the enclosing definition and threaded inward. Ride the same
-   identity discipline as canonical capture IDs (see Related projects) rather
-   than inventing a parallel mechanism.
+   introduced by the enclosing definition and threaded inward. Ride the
+   existing `CaptureId` discipline rather than inventing a parallel identity
+   mechanism.
 
 5. **Deletions (not fallbacks).** After migration:
    - `methodOwnerFromType`-based dispatch resolution in
@@ -243,12 +243,10 @@ cache serialization time must not measurably regress.
 
 ## Related projects
 
-- [../small/check-app-against-platform-requires.md](../small/check-app-against-platform-requires.md)
-  — prerequisite: plans cannot be total while platform-typed dispatchers are
-  flex vars at check time.
-- [../big/canonical-capture-id.md](../big/canonical-capture-id.md) — evidence
-  threading through nested closures rides the same compile-time-capture
-  discipline; do it before or together with step 4.
+- [../small/finish-platform-requires-check-time-migration.md](../small/finish-platform-requires-check-time-migration.md)
+  — prerequisite: plans cannot be total while checked module publication can
+  still rewrite platform-required checked type roots and callable types after
+  checking.
 - [../big/generalization-time-ambiguity.md](../big/generalization-time-ambiguity.md)
   — shares the constraint-provenance foundation; `constraint(k)` gives each
   dispatch constraint a stable identity that ambiguity reporting can also

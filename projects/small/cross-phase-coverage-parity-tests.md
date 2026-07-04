@@ -213,7 +213,7 @@ This project IS tests. The four suites, concretely:
 - [../big/total-dispatch-plans.md](../big/total-dispatch-plans.md) — the
   same explicit-data discipline applied to dispatch, shrinking the set of
   cross-phase predicates that need parity tests at all.
-- [../small/check-app-against-platform-requires.md](../small/check-app-against-platform-requires.md)
+- [../small/finish-platform-requires-check-time-migration.md](../small/finish-platform-requires-check-time-migration.md)
   — another boundary where producer and consumer enumerations must agree.
 - [./structural-hoist-contexts.md](./structural-hoist-contexts.md) — PR
   9722's hoisting broke comptime-site identity (suite 3's history); its
