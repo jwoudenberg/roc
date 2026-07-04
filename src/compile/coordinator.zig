@@ -1487,6 +1487,15 @@ pub const Coordinator = struct {
         allocator: Allocator,
         imported_artifacts: []const check.CheckedArtifact.PublishImportArtifact,
     ) Allocator.Error![]check.CheckedArtifact.ImportedModuleView {
+        return self.collectTypecheckAvailableArtifactViewsSeeded(allocator, imported_artifacts, &.{});
+    }
+
+    fn collectTypecheckAvailableArtifactViewsSeeded(
+        self: *Coordinator,
+        allocator: Allocator,
+        imported_artifacts: []const check.CheckedArtifact.PublishImportArtifact,
+        extra_seed_views: []const check.CheckedArtifact.ImportedModuleView,
+    ) Allocator.Error![]check.CheckedArtifact.ImportedModuleView {
         var views = std.ArrayList(check.CheckedArtifact.ImportedModuleView).empty;
         errdefer views.deinit(allocator);
 
@@ -1498,6 +1507,10 @@ pub const Coordinator = struct {
 
         for (imported_artifacts) |imported| {
             try pending.append(allocator, imported.view);
+        }
+
+        for (extra_seed_views) |seed_view| {
+            try pending.append(allocator, seed_view);
         }
 
         while (pending.pop()) |view| {
@@ -3543,23 +3556,26 @@ pub const Coordinator = struct {
         errdefer task_payload_alloc.free(imported_envs);
         const imported_artifacts = try self.buildTypecheckImportedArtifacts(pkg, mod, task_payload_alloc);
         errdefer task_payload_alloc.free(imported_artifacts);
-        var available_artifacts = try self.collectTypecheckAvailableArtifactViews(task_payload_alloc, imported_artifacts);
-        errdefer task_payload_alloc.free(available_artifacts);
+        // Requirement unification copies platform-owned types into the app's
+        // store, so the app's published API can reference the platform's nominal
+        // types — including types that only appear in the platform's `requires`
+        // signatures (like `Host`), whose declaring modules are not part of the
+        // platform root's public-API type owners. Seed the availability walk with
+        // every checked module of the platform package so each such declaration
+        // is resolvable when the app publishes checked types.
+        var platform_seed_list = std.ArrayList(check.CheckedArtifact.ImportedModuleView).empty;
+        defer platform_seed_list.deinit(task_payload_alloc);
         if (platform_surface != null) {
-            // Requirement unification copies platform-owned types into the
-            // app's store, so the app's published API can depend on the
-            // platform root's artifact; make it available to publication's
-            // public-API dependency scan.
             if (self.platformRootCandidate()) |platform_root| {
-                if (platform_root.mod.checkedArtifact()) |platform_artifact| {
-                    const with_platform = try task_payload_alloc.alloc(check.CheckedArtifact.ImportedModuleView, available_artifacts.len + 1);
-                    @memcpy(with_platform[0..available_artifacts.len], available_artifacts);
-                    with_platform[available_artifacts.len] = check.CheckedArtifact.importedView(platform_artifact);
-                    task_payload_alloc.free(available_artifacts);
-                    available_artifacts = with_platform;
+                for (platform_root.pkg.modules.items) |*platform_mod| {
+                    if (platform_mod.checkedArtifact()) |platform_artifact| {
+                        try platform_seed_list.append(task_payload_alloc, check.CheckedArtifact.importedView(platform_artifact));
+                    }
                 }
             }
         }
+        const available_artifacts = try self.collectTypecheckAvailableArtifactViewsSeeded(task_payload_alloc, imported_artifacts, platform_seed_list.items);
+        errdefer task_payload_alloc.free(available_artifacts);
         const explicit_roots = try buildExplicitRootRequests(mod, task_payload_alloc);
         errdefer task_payload_alloc.free(explicit_roots);
 
