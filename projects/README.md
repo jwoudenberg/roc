@@ -26,21 +26,15 @@ completely.
 
 ### Start here
 
-1. [small/finish-platform-requires-check-time-migration.md](small/finish-platform-requires-check-time-migration.md)
-   — highest leverage per unit of work in the current set. The coordinator's
-   shadow-reporting layer is gone, but checked module publication still applies
-   platform-required substitutions after checking. Finishing this removes that
-   post-publication rewrite and unblocks total dispatch plans and the exact
-   numeral pipeline.
+1. [small/cross-phase-coverage-parity-tests.md](small/cross-phase-coverage-parity-tests.md)
+   — cheap insurance before larger migrations: it pins producer/consumer
+   predicate parity so later refactors have a focused regression net.
 
 ### Dependency chains
 
 **Chain A — dispatch:**
-1. `small/finish-platform-requires-check-time-migration.md` (prerequisite: dispatch
-   plans cannot be total while checked module publication can still rewrite
-   platform-required checked type roots and callable types after checking)
-2. [big/total-dispatch-plans.md](big/total-dispatch-plans.md)
-3. [big/generalization-time-ambiguity.md](big/generalization-time-ambiguity.md)
+1. [big/total-dispatch-plans.md](big/total-dispatch-plans.md)
+2. [big/generalization-time-ambiguity.md](big/generalization-time-ambiguity.md)
    — shares the constraint-provenance foundation with total dispatch plans;
    doable before it, but cheaper after.
 
@@ -59,10 +53,7 @@ dispatch targets) and the glue project, but does not block them.
    fails CI when skips occur; this project closes the hole for real.
 
 **Chain D — numerics:**
-1. `small/finish-platform-requires-check-time-migration.md` (removes the remaining
-   platform-requirement publication rewrite that can obscure literal range
-   facts)
-2. [big/exact-numeral-pipeline.md](big/exact-numeral-pipeline.md)
+1. [big/exact-numeral-pipeline.md](big/exact-numeral-pipeline.md)
 - [small/checked-arithmetic-lir-ops.md](small/checked-arithmetic-lir-ops.md)
   is independent of both and can land any time.
 
@@ -87,30 +78,24 @@ Big:
 - [big/unify-build-pipelines.md](big/unify-build-pipelines.md) — independent;
   package identity is already centralized, but the run path still hand-wires
   coordinator setup and report rendering.
-- [big/row-subsumption.md](big/row-subsumption.md) — independent of all other
-  projects, but requires a language-semantics decision before implementation
-  starts (see the file).
 
 ### Suggested overall sequence
 
 If one person or agent works through everything serially, this order front-loads
 leverage and keeps prerequisites satisfied:
 
-1. `small/finish-platform-requires-check-time-migration.md`
-2. `small/cross-phase-coverage-parity-tests.md`
-3. `small/centralize-slice-reuse-predicate.md`
-4. `small/store-generation-counters.md`
-5. `small/checked-arithmetic-lir-ops.md`
-6. `big/total-dispatch-plans.md`
-7. `big/immutable-specialization-identity.md`
-8. `small/shared-checked-type-traversal.md`
-9. `small/cache-hardening.md`
-10. `big/arc-certifier-lattice-join.md`
-11. `big/exact-numeral-pipeline.md`
-12. `big/generalization-time-ambiguity.md`
-13. `big/unify-build-pipelines.md`
-14. `big/decision-tree-match-compiler.md`
-15. `small/glue-consumes-committed-layouts.md`
-16. `small/structural-hoist-contexts.md`
-17. `big/row-subsumption.md` (whenever the language decision is made; nothing
-    blocks on it)
+1. `small/cross-phase-coverage-parity-tests.md`
+2. `small/centralize-slice-reuse-predicate.md`
+3. `small/store-generation-counters.md`
+4. `small/checked-arithmetic-lir-ops.md`
+5. `big/total-dispatch-plans.md`
+6. `big/immutable-specialization-identity.md`
+7. `small/shared-checked-type-traversal.md`
+8. `small/cache-hardening.md`
+9. `big/arc-certifier-lattice-join.md`
+10. `big/exact-numeral-pipeline.md`
+11. `big/generalization-time-ambiguity.md`
+12. `big/unify-build-pipelines.md`
+13. `big/decision-tree-match-compiler.md`
+14. `small/glue-consumes-committed-layouts.md`
+15. `small/structural-hoist-contexts.md`

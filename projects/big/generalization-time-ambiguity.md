@@ -250,7 +250,3 @@ check memory.
 - [../big/total-dispatch-plans.md](../big/total-dispatch-plans.md) — shares
   the constraint-provenance foundation; its `constraint(k)` indices are
   natural provenance carriers. Either order works; build provenance once.
-- [../small/finish-platform-requires-check-time-migration.md](../small/finish-platform-requires-check-time-migration.md)
-  — upstream of both dispatch projects: checked module publication must not
-  rewrite platform-required callable types after check-time pinnability
-  judgments have been made.

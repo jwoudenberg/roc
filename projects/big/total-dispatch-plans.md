@@ -71,9 +71,9 @@ Principles ("consumers must not recover missing data from source syntax,
 names, body scans, ... or incidental data structure shape") are the part that
 stays; the monotype dispatch algorithm changes to consume explicit evidence.
 
-Prerequisite context: the app module must see the platform's `requires` types
-during checking (see Related projects), otherwise platform-typed dispatchers
-are still flex vars when plans freeze and cannot be resolved at check time.
+Context: the app module now sees the platform's `requires` types during
+checking, so platform-typed dispatchers are not left as standalone flex vars
+when plans freeze.
 
 ## Evidence
 
@@ -96,9 +96,11 @@ All symbols verified in the current tree.
   (runtime crash fallback reached), #9782/#9857/#9890 (coordinator-side
   dispatch revalidation cascade), #9889/#9890 (regressions from
   specialization-heavy roc-parser package code).
-- `src/check/checked_artifact.zig`: `specializeResolvedStaticDispatchPlanCallables`
-  (PR #9873) — publication-time re-projection of resolved plan callables,
-  part of place (5)/(6) above.
+- `src/check/checked_artifact.zig`: publication still requires every checked
+  dispatch expression to carry an explicit plan id, but the old
+  publication-time plan re-projection pass has been removed. The
+  total-dispatch fix must therefore produce complete callable evidence during
+  checking/static-dispatch planning, not by repairing plans during publication.
 
 ## Solution design
 
@@ -243,10 +245,6 @@ cache serialization time must not measurably regress.
 
 ## Related projects
 
-- [../small/finish-platform-requires-check-time-migration.md](../small/finish-platform-requires-check-time-migration.md)
-  — prerequisite: plans cannot be total while checked module publication can
-  still rewrite platform-required checked type roots and callable types after
-  checking.
 - [../big/generalization-time-ambiguity.md](../big/generalization-time-ambiguity.md)
   — shares the constraint-provenance foundation; `constraint(k)` gives each
   dispatch constraint a stable identity that ambiguity reporting can also
