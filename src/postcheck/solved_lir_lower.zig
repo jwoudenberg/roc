@@ -7690,7 +7690,7 @@ test "layout lowering accepts tag payload alias backed by primitive" {
     var solved = emptySolvedProgramForTest(allocator);
     defer solved.deinit();
 
-    const module_name = try solved.lifted.names.internModuleName("Repro");
+    const module_identity = try solved.lifted.names.internModuleIdentity(&([_]u8{0xAB} ** 32));
     const repro_name = try solved.lifted.names.internTypeName("Repro");
     const alias_name = try solved.lifted.names.internTypeName("Alias");
     const wrap_name = try solved.lifted.names.internTagLabel("Wrap");
@@ -7703,7 +7703,7 @@ test "layout lowering accepts tag payload alias backed by primitive" {
         .named = .{
             // Layout lowering does not read checked type ids for this synthetic type.
             .named_type = .{ .module = .{}, .ty = undefined },
-            .def = .{ .module_name = module_name, .type_name = alias_name },
+            .def = .{ .module = module_identity, .type_name = alias_name },
             .kind = .alias,
             .args = .empty(),
             .backing = .{ .ty = u32_ty, .use = .inspectable },
@@ -7722,7 +7722,7 @@ test "layout lowering accepts tag payload alias backed by primitive" {
         .named = .{
             // Layout lowering does not read checked type ids for this synthetic type.
             .named_type = .{ .module = .{}, .ty = undefined },
-            .def = .{ .module_name = module_name, .type_name = repro_name },
+            .def = .{ .module = module_identity, .type_name = repro_name },
             .kind = .nominal,
             .args = .empty(),
             .backing = .{ .ty = tag_union_ty, .use = .inspectable },

@@ -702,7 +702,7 @@ test "occurs: valid nominal recursion does not hide later invalid recursion" {
         undefined,
         list_backing,
         &.{},
-        Ident.Idx{ .attributes = .{ .effectful = false, .ignored = false, .reassignable = false }, .idx = 0 },
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 
@@ -741,7 +741,7 @@ test "occurs: valid nominal return recursion does not hide invalid argument recu
         undefined,
         list_backing,
         &.{},
-        Ident.Idx{ .attributes = .{ .effectful = false, .ignored = false, .reassignable = false }, .idx = 0 },
+        base.ModuleIdentity.Idx.NONE,
         false,
     ));
 

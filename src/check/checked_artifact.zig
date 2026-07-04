@@ -14927,6 +14927,7 @@ fn specializeResolvedStaticDispatchPlanCallables(
     names: *canonical.CanonicalNameStore,
     store: *CheckedTypeStore,
     artifact_key: CheckedModuleArtifactKey,
+    module_idx: u32,
     available_artifacts: []const ImportedModuleView,
     plans: *static_dispatch.StaticDispatchPlanTable,
 ) Allocator.Error!void {
@@ -14940,6 +14941,7 @@ fn specializeResolvedStaticDispatchPlanCallables(
             names,
             store,
             artifact_key,
+            module_idx,
             available_artifacts,
             target,
         );
@@ -14958,11 +14960,23 @@ fn projectResolvedDispatchTargetCallable(
     names: *canonical.CanonicalNameStore,
     store: *CheckedTypeStore,
     artifact_key: CheckedModuleArtifactKey,
+    module_idx: u32,
     available_artifacts: []const ImportedModuleView,
     target: static_dispatch.MethodTarget,
 ) Allocator.Error!CheckedTypeId {
     const target_key = switch (target.kind) {
         .local_proc => return target.callable_ty,
+        .generated_structural_parser,
+        .generated_structural_encoder,
+        => {
+            if (target.module_idx == module_idx) return target.callable_ty;
+            const imported = importedModuleViewByModuleIdx(available_artifacts, target.module_idx) orelse {
+                checkedArtifactInvariant("resolved generated structural dispatch target module was not available during checked publication", .{});
+            };
+            var projector = CheckedTypeStoreImportProjector.init(allocator, store, names, imported);
+            defer projector.deinit();
+            return try projector.project(target.callable_ty);
+        },
         .procedure => |procedure| checkedArtifactKeyFromArtifactRef(procedure.template.artifact),
     };
     if (checkedArtifactKeyEql(target_key, artifact_key)) return target.callable_ty;
@@ -15935,11 +15949,36 @@ fn importedModuleViewByKey(
     return null;
 }
 
+fn importedModuleViewByModuleIdx(
+    artifacts: []const ImportedModuleView,
+    module_idx: u32,
+) ?ImportedModuleView {
+    for (artifacts) |artifact| {
+        if (artifact.module_identity.module_idx == module_idx) return artifact;
+    }
+    return null;
+}
+
 fn relationArtifactByKey(
     relation_artifacts: []const ImportedModuleView,
     key: CheckedModuleArtifactKey,
 ) ?ImportedModuleView {
     return importedModuleViewByKey(relation_artifacts, key);
+}
+
+fn platformRequirementArtifactByContext(
+    available_artifacts: []const ImportedModuleView,
+    context: ?PlatformRequirementContextKey,
+) ?ImportedModuleView {
+    const expected_context = context orelse return null;
+    for (available_artifacts) |artifact| {
+        const artifact_context = PlatformRequirementContextKey.compute(
+            artifact.module_identity,
+            artifact.platform_required_declarations.identityHash(artifact.canonical_names),
+        );
+        if (std.meta.eql(expected_context.bytes, artifact_context.bytes)) return artifact;
+    }
+    return null;
 }
 
 fn appTypeDeclCheckedRootForName(
@@ -19195,6 +19234,24 @@ const PlatformAppRelationTypeDigestBuilder = struct {
 fn checkedTypePayloadIsIdentity(payload: CheckedTypePayload) bool {
     return switch (payload) {
         .flex, .rigid => true,
+        else => false,
+    };
+}
+
+/// A structural aggregate type: a tag union, record, or tuple. A value pinned to a
+/// numeric default can never have one of these shapes.
+fn checkedTypePayloadIsStructuralAggregate(payload: CheckedTypePayload) bool {
+    return switch (payload) {
+        .empty_record, .record, .record_unbound, .tuple, .empty_tag_union, .tag_union => true,
+        else => false,
+    };
+}
+
+/// A flex/rigid variable pinned to a literal default: a number literal/expression
+/// that defaults to `Dec`, or a string literal that defaults to `Str`.
+fn checkedTypePayloadIsLiteralDefaultPinnedVar(payload: CheckedTypePayload) bool {
+    return switch (payload) {
+        .flex, .rigid => |variable| variable.numeric_default_phase != null,
         else => false,
     };
 }
@@ -26704,6 +26761,23 @@ pub fn publishFromTypedModule(
     var checked_type_publication = try CheckedTypeStore.fromModule(allocator, module, &canonical_names, inputs.imports, inputs.available_artifacts, &source_nodes);
     defer checked_type_publication.deinitIndex(allocator);
     errdefer checked_type_publication.store.deinit(allocator);
+    const platform_requirement_artifact = platformRequirementArtifactByContext(inputs.available_artifacts, inputs.platform_requirement_context);
+    try applyPlatformRequiredSignatureSubstitutions(
+        allocator,
+        module,
+        &canonical_names,
+        &checked_type_publication,
+        inputs.platform_requirement_context,
+        platform_requirement_artifact,
+    );
+    try applyPlatformForClauseSubstitutions(
+        allocator,
+        module,
+        &canonical_names,
+        &checked_type_publication,
+        inputs.relation_artifacts,
+        inputs.platform_app_relation,
+    );
     const checked_types = &checked_type_publication.store;
 
     var checked_body_builder = try CheckedBodyStoreBuilder.fromModule(allocator, module, &canonical_names, &checked_type_publication, &source_nodes);
@@ -26742,6 +26816,15 @@ pub fn publishFromTypedModule(
         inputs.available_artifacts,
     );
     errdefer static_dispatch_plans.deinit(allocator);
+    try specializeResolvedStaticDispatchPlanCallables(
+        allocator,
+        &canonical_names,
+        checked_types,
+        artifact_key,
+        module_idx,
+        inputs.available_artifacts,
+        &static_dispatch_plans,
+    );
     checked_bodies.attachStaticDispatchPlans(&static_dispatch_plans);
     checked_bodies.attachNumeralPlans(&static_dispatch_plans);
     checked_bodies.attachQuotePlans(&static_dispatch_plans);
@@ -28489,8 +28572,8 @@ test "SERIALIZED_VERSION_HASH golden value" {
     // change, bump `serialized_layout_version` and replace the golden bytes below with
     // the ones this assertion prints.
     const golden: [32]u8 = .{
-        0x3F, 0xA0, 0x78, 0xB9, 0x32, 0x0D, 0xDD, 0xFF, 0x93, 0x95, 0x41, 0xC2, 0xEB, 0x78, 0x18, 0x4E,
-        0x05, 0xF0, 0x3D, 0x43, 0x45, 0xCE, 0x9B, 0x31, 0x1A, 0xA7, 0xCF, 0xC2, 0x8D, 0x8B, 0x0D, 0x36,
+        0xA3, 0x20, 0xAD, 0x3D, 0xFB, 0x97, 0x4B, 0x2A, 0x7A, 0x02, 0xE0, 0x5B, 0x55, 0x1A, 0x72, 0x65,
+        0x37, 0xB4, 0xA9, 0xBE, 0xB4, 0x6F, 0x33, 0xA1, 0x11, 0xE3, 0x81, 0xEA, 0x0A, 0x72, 0x66, 0x04,
     };
     try std.testing.expectEqualSlices(u8, &golden, &CheckedModuleArtifact.SERIALIZED_VERSION_HASH);
 }
